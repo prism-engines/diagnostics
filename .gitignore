@@ -98,3 +98,4 @@ htmlcov/
 *.tar.gz
 *.rar
 .claude/
+.pre-commit-config.yaml
