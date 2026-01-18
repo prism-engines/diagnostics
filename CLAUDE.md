@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-PRISM Diagnostics is a behavioral geometry engine for industrial signal topology analysis. It measures intrinsic properties, relational structure, and temporal dynamics of sensor data from turbofans, bearings, hydraulic systems, and chemical plants. **The math interprets; we don't add narrative.**
+PRISM Diagnostics is a behavioral geometry engine for industrial signal topology analysis. It computes intrinsic properties, relational structure, and temporal dynamics of sensor data from turbofans, bearings, hydraulic systems, and chemical processes.
 
 **Repository:** `prism-engines/diagnostics`
 
@@ -14,11 +14,9 @@ PRISM Diagnostics is a behavioral geometry engine for industrial signal topology
 - Pandas only at engine boundaries (scipy/sklearn compatibility)
 - Data stays local (gitignored), only code goes to GitHub
 
-**Core Philosophy:**
-- Record reality faithfully
-- Let math speak
-- The geometry interprets - we don't add opinion
-- Parquet is truth (all measurements persist to Parquet files)
+**Design Principles:**
+- Record observations faithfully
+- Persist all measurements to Parquet
 - Explicit time (nothing inferred between steps)
 - No implicit execution (importing does nothing)
 
@@ -34,14 +32,14 @@ PRISM Diagnostics is a behavioral geometry engine for industrial signal topology
 prism-engines/diagnostics/
 ├── prism/                      # Core package
 │   ├── db/                     # Parquet I/O layer
-│   ├── engines/                # 21 computation engines
+│   ├── engines/                # 33 computation engines
 │   ├── entry_points/           # CLI entrypoints (python -m prism.entry_points.*)
 │   ├── modules/                # Reusable computation modules
 │   ├── cohorts/                # Cohort definitions
 │   ├── state/                  # State tracking
 │   └── utils/                  # Utilities (including monitor.py)
 │
-├── fetchers/                   # Data fetchers
+├── fetchers/                   # Data fetchers (16 total)
 │   ├── cmapss_fetcher.py       # NASA C-MAPSS turbofan
 │   ├── femto_fetcher.py        # FEMTO bearing degradation
 │   ├── hydraulic_fetcher.py    # UCI hydraulic system
@@ -121,7 +119,7 @@ Layer 0: OBSERVATIONS
          Raw sensor data → signal topology
          Output: data/raw/observations.parquet
 
-Layer 1: INDICATOR VECTOR
+Layer 1: SIGNAL VECTOR
          Raw observations → 51 behavioral metrics per signal
          Output: data/vector/signal.parquet
 
@@ -136,16 +134,22 @@ Layer 3: STATE
 REGIME CHANGE = geometric deformation at any layer
 ```
 
-## Engine Types
+## Engine Categories
 
-**Vector Engines (7)** - Intrinsic properties of single series
-- Hurst, Entropy, GARCH, Wavelet, Spectral, Lyapunov, RQA
+**Vector Engines (9)** - Intrinsic properties of single series
+- Hurst, Entropy, GARCH, Wavelet, Spectral, Lyapunov, RQA, Realized Vol, Hilbert
 
-**Geometry Engines** - Structural relationships
-- PCA, MST, Clustering, LOF, Distance, Convex Hull
+**Geometry Engines (9)** - Structural relationships
+- PCA, MST, Clustering, LOF, Distance, Convex Hull, Copula, Mutual Information, Barycenter
 
-**State Engines (6)** - Temporal dynamics
-- Granger, Cross-Correlation, Cointegration, DTW, DMD, Transfer Entropy
+**State Engines (7)** - Temporal dynamics
+- Granger, Cross-Correlation, Cointegration, DTW, DMD, Transfer Entropy, Coupled Inertia
+
+**Temporal Dynamics (5)** - Geometry evolution
+- Energy Dynamics, Tension Dynamics, Phase Detector, Cohort Aggregator, Transfer Detector
+
+**Observation Engines (3)** - Discontinuity detection
+- Break Detector, Heaviside, Dirac
 
 ## Key Patterns
 
@@ -171,12 +175,14 @@ write_parquet_atomic(df, target_path)
 
 ## Validated Domains
 
-- **C-MAPSS**: NASA turbofan engine degradation (FD001-FD004)
-- **FEMTO**: Bearing degradation (PRONOSTIA dataset)
-- **Hydraulic**: UCI hydraulic system condition monitoring
-- **CWRU**: Case Western bearing fault classification
-- **TEP**: Tennessee Eastman chemical process faults
-- **MetroPT**: Metro train compressor failures
+| Domain | Source | Use Case |
+|--------|--------|----------|
+| **C-MAPSS** | NASA | Turbofan engine degradation (FD001-FD004) |
+| **FEMTO** | PHM Society | Bearing degradation (PRONOSTIA) |
+| **Hydraulic** | UCI | Hydraulic system condition monitoring |
+| **CWRU** | Case Western | Bearing fault classification |
+| **TEP** | Tennessee Eastman | Chemical process fault detection |
+| **MetroPT** | Metro do Porto | Train compressor failures |
 
 ## Technical Stack
 
@@ -185,16 +191,3 @@ write_parquet_atomic(df, target_path)
 - **DataFrame:** Polars (primary), Pandas (engine compatibility)
 - **Core:** NumPy, SciPy, scikit-learn
 - **Specialized:** antropy, nolds, pyrqa, arch, PyWavelets, networkx
-
-## What PRISM Does and Does NOT Do
-
-PRISM does NOT:
-- Predict timing or outcomes
-- Recommend actions
-- Add opinion or spin
-
-PRISM DOES:
-- Show the shape of structural stress
-- Identify when geometry matches historical failure patterns
-- Reveal which sensors belong together
-- Detect regime boundaries mathematically

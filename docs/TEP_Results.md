@@ -280,7 +280,7 @@ Mode 1 interpretation:
 
 4. **Low affinity = high uncertainty** - Mode 1's lower affinity (0.937) indicates the system is not firmly in any stable behavioral mode.
 
-5. **The geometry interprets** - no manual rules were created; the math discovered these patterns from the data.
+5. No manual rules were created - these patterns were discovered from the data.
 
 ---
 

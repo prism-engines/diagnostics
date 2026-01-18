@@ -176,4 +176,4 @@ All validation follows academic research standards:
 
 ---
 
-*PRISM: The math interprets; we don't add narrative.*
+

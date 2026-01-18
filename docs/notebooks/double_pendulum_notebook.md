@@ -152,4 +152,4 @@ PYTHONPATH=. python scripts/validate_double_pendulum.py
 ---
 
 *Generated: 2026-01-16*
-*PRISM Framework - The math interprets; we don't add narrative.*
+*PRISM Framework - *

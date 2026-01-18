@@ -2,15 +2,14 @@
 
 **Persistent Relational Inference & Structural Measurement**
 
-A behavioral geometry engine for signal topology analysis. PRISM transforms raw observations into a **Laplace Vector Field** representation, where signals self-organize into natural cohorts based on field topology. **THE MATH REVEALS STRUCTURE.**
+A behavioral geometry engine for signal topology analysis. PRISM transforms raw observations into a **Laplace Vector Field** representation, where signals self-organize into natural cohorts based on field topology.
 
 ---
 
-## Philosophy
+## Design Principles
 
 - **Record reality faithfully** — No interpolation, no synthetic data
-- **Let math speak** — The geometry interprets, we don't add opinion
-- **Parquet is truth** — All measurements persist to Parquet files
+- **Persist all measurements** — All computations saved to Parquet files
 - **Explicit time** — Nothing inferred between steps
 - **No implicit execution** — Importing does nothing
 - **Field topology reveals structure** — SOURCES emanate stress, SINKS absorb it
@@ -758,22 +757,6 @@ Before analysis, each signal is classified on 6 dynamical axes:
 - **NO APPROXIMATIONS** — Peer-reviewed algorithms (antropy, pyrqa)
 - **NO SPEED HACKS** — 2-3 hour runs acceptable, 2-3 week runs expected
 - **PUBLICATION-GRADE** — Suitable for peer-reviewed research
-
----
-
-## What PRISM Does and Does NOT Do
-
-**PRISM does NOT:**
-- Predict timing or outcomes
-- Recommend actions
-- Add opinion or spin
-- Generate narrative explanations
-
-**PRISM DOES:**
-- Show you the shape of structural stress
-- Identify when current geometry matches historical patterns
-- Reveal which signals belong together
-- Detect regime boundaries mathematically
 
 ---
 
