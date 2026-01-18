@@ -37,7 +37,16 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
 
-from prism.db import get_parquet_path, read_parquet, upsert_parquet
+from prism.db.parquet_store import (
+    get_path,
+    get_data_root,
+    OBSERVATIONS,
+    SIGNALS,
+    GEOMETRY,
+    STATE,
+    COHORTS,
+)
+from prism.db.polars_io import read_parquet, upsert_parquet
 
 logger = logging.getLogger(__name__)
 
@@ -401,7 +410,7 @@ def ensure_schema(layer: str = 'geometry'):
 
 def _store_displacement(d: Displacement, layer: str = 'geometry'):
     """Store displacement record to Parquet."""
-    path = get_parquet_path(layer, 'displacement')
+    path = get_path(GEOMETRY) if layer == 'geometry' else get_path(STATE)
 
     df = pl.DataFrame({
         'cohort': [d.cohort],
@@ -436,7 +445,7 @@ def _store_displacement(d: Displacement, layer: str = 'geometry'):
 def _store_shift(d: Displacement, depth: int, layer: str = 'geometry'):
     """Store detected shift (major/significant only) to Parquet."""
     if d.severity in ('major', 'significant'):
-        path = get_parquet_path(layer, 'shifts')
+        path = get_path(GEOMETRY) if layer == 'geometry' else get_path(STATE)
 
         df = pl.DataFrame({
             'cohort': [d.cohort],
@@ -462,7 +471,7 @@ def _load_observations(cohort: str, window_days: int, layer: str = 'geometry'):
 
     Returns List[GeometryVector] for geometry layer, List[StateVector] for state layer.
     """
-    path = get_parquet_path(layer, 'observations')
+    path = get_path(GEOMETRY) if layer == 'geometry' else get_path(STATE)
     df = read_parquet(path)
 
     if df.is_empty():
@@ -626,7 +635,7 @@ def get_shifts_summary(
     layer: str = 'geometry'
 ) -> pl.DataFrame:
     """Get summary of detected shifts."""
-    path = get_parquet_path(layer, 'shifts')
+    path = get_path(GEOMETRY) if layer == 'geometry' else get_path(STATE)
     df = read_parquet(path)
 
     if df.is_empty():
@@ -643,7 +652,7 @@ def get_displacement_stats(
     layer: str = 'geometry'
 ) -> List[Dict[str, Any]]:
     """Get displacement statistics."""
-    path = get_parquet_path(layer, 'displacement')
+    path = get_path(GEOMETRY) if layer == 'geometry' else get_path(STATE)
     df = read_parquet(path)
 
     if df.is_empty():
@@ -674,7 +683,7 @@ def get_top_shifts(
     layer: str = 'geometry'
 ) -> pl.DataFrame:
     """Get top N shifts by delta."""
-    path = get_parquet_path(layer, 'shifts')
+    path = get_path(GEOMETRY) if layer == 'geometry' else get_path(STATE)
     df = read_parquet(path)
 
     if df.is_empty():

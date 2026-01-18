@@ -18,7 +18,7 @@ from typing import List, Optional, Union
 
 import polars as pl
 
-from prism.db.parquet_store import get_parquet_path
+from prism.db.parquet_store import get_path, OBSERVATIONS, SIGNALS, GEOMETRY, STATE, COHORTS
 
 
 def read_parquet(
@@ -36,8 +36,7 @@ def read_parquet(
         Polars DataFrame (empty if file doesn't exist)
 
     Example:
-        >>> df = read_parquet('data/raw/observations.parquet')
-        >>> df = read_parquet(get_parquet_path('raw', 'observations'))
+        >>> df = read_parquet(get_path(OBSERVATIONS))
     """
     path = Path(path)
     if not path.exists():
@@ -498,30 +497,28 @@ def get_row_count(path: Union[str, Path]) -> int:
 # Convenience functions for common operations
 
 
-def read_table(schema: str, table: str, columns: Optional[List[str]] = None) -> pl.DataFrame:
+def read_file(file: str, columns: Optional[List[str]] = None) -> pl.DataFrame:
     """
-    Read a table from the PRISM data store.
+    Read a file from the PRISM data store.
 
     Args:
-        schema: Schema name (raw, vector, geometry, state)
-        table: Table name (observations, signals, etc.)
+        file: File constant (OBSERVATIONS, SIGNALS, GEOMETRY, STATE, COHORTS)
         columns: Optional list of columns to read
 
     Returns:
         Polars DataFrame
 
     Example:
-        >>> obs = read_table('raw', 'observations')
-        >>> vectors = read_table('vector', 'signals', columns=['signal_id', 'metric_value'])
+        >>> obs = read_file(OBSERVATIONS)
+        >>> signals = read_file(SIGNALS, columns=['entity_id', 'signal_id', 'value'])
     """
-    path = get_parquet_path(schema, table)
+    path = get_path(file)
     return read_parquet(path, columns=columns)
 
 
-def write_table(
+def write_file(
     df: pl.DataFrame,
-    schema: str,
-    table: str,
+    file: str,
     mode: str = "replace",
     key_cols: Optional[List[str]] = None,
 ) -> int:
@@ -530,8 +527,7 @@ def write_table(
 
     Args:
         df: Polars DataFrame to write
-        schema: Schema name (raw, vector, geometry, state)
-        table: Table name (observations, signals, etc.)
+        file: File constant (OBSERVATIONS, SIGNALS, GEOMETRY, STATE, COHORTS)
         mode: 'replace' (overwrite), 'append', or 'upsert'
         key_cols: Required for 'upsert' mode
 
@@ -539,10 +535,10 @@ def write_table(
         Number of rows written/total
 
     Example:
-        >>> write_table(observations, 'raw', 'observations', mode='upsert',
-        ...             key_cols=['signal_id', 'obs_date'])
+        >>> write_file(observations, OBSERVATIONS, mode='upsert',
+        ...            key_cols=['entity_id', 'signal_id', 'timestamp'])
     """
-    path = get_parquet_path(schema, table)
+    path = get_path(file)
 
     if mode == "replace":
         return write_parquet_atomic(df, path)

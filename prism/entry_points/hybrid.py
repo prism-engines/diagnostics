@@ -39,7 +39,16 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.pipeline import Pipeline
 from sklearn.base import clone
 
-from prism.db.parquet_store import get_parquet_path, ensure_directories
+from prism.db.parquet_store import (
+    ensure_directory,
+    get_path,
+    get_data_root,
+    OBSERVATIONS,
+    SIGNALS,
+    GEOMETRY,
+    STATE,
+    COHORTS,
+)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -121,7 +130,7 @@ def extract_prism_features(
     # -------------------------------------------------------------------------
 
     # Laplace field (signal-level)
-    field_path = get_parquet_path('vector', 'signal_field', domain=domain)
+    field_path = get_path(SIGNALS, domain=domain)
     if not field_path.exists():
         raise FileNotFoundError(f"Run laplace.py first: {field_path}")
     field_df = pl.read_parquet(field_path)
@@ -136,14 +145,14 @@ def extract_prism_features(
         ])
 
     # Cohort geometry (optional)
-    geom_path = get_parquet_path('geometry', 'cohort', domain=domain)
+    geom_path = get_path(GEOMETRY, domain=domain)
     geometry_df = None
     if geom_path.exists():
         geometry_df = pl.read_parquet(geom_path)
         logger.info(f"Loaded geometry data: {len(geometry_df):,} rows")
 
     # Observations (only load RUL signals for target extraction)
-    obs_path = get_parquet_path('raw', 'observations', domain=domain)
+    obs_path = get_path(OBSERVATIONS, domain=domain)
     if not obs_path.exists():
         raise FileNotFoundError(f"Observations not found: {obs_path}")
     # Lazy scan with filter pushdown - only load RUL signals
@@ -295,7 +304,7 @@ def extract_baseline_features(domain: str) -> Tuple[pl.DataFrame, List[str]]:
     This is what you'd get WITHOUT PRISM.
     """
 
-    obs_path = get_parquet_path('raw', 'observations', domain=domain)
+    obs_path = get_path(OBSERVATIONS, domain=domain)
 
     # Use two separate lazy queries for non-RUL (baseline) and RUL (target)
     lazy_obs = pl.scan_parquet(obs_path)

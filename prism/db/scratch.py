@@ -36,7 +36,7 @@ from typing import List, Optional, Union
 
 import polars as pl
 
-from prism.db.parquet_store import get_parquet_path
+from prism.db.parquet_store import get_path, OBSERVATIONS, SIGNALS, GEOMETRY, STATE, COHORTS
 from prism.db.polars_io import read_parquet, upsert_parquet, write_parquet_atomic
 
 logger = logging.getLogger(__name__)
@@ -211,8 +211,8 @@ def merge_temp_results(
         >>> temp_paths = [Path('/tmp/worker_0.parquet'), Path('/tmp/worker_1.parquet')]
         >>> merge_temp_results(
         ...     temp_paths,
-        ...     get_parquet_path('vector', 'signals'),
-        ...     key_cols=['signal_id', 'obs_date', 'engine', 'metric_name']
+        ...     get_path(SIGNALS),
+        ...     key_cols=['entity_id', 'signal_id', 'timestamp']
         ... )
     """
     # Read all temp files
@@ -254,20 +254,18 @@ def merge_temp_results(
 
 def merge_to_table(
     temp_paths: List[Path],
-    schema: str,
-    table: str,
+    file: str,
     key_cols: Optional[List[str]] = None,
     delete_temps: bool = True,
 ) -> int:
     """
-    Merge temp files into a PRISM table.
+    Merge temp files into a PRISM file.
 
     Convenience wrapper around merge_temp_results.
 
     Args:
         temp_paths: List of temp parquet file paths
-        schema: Target schema (raw, vector, geometry, state)
-        table: Target table name
+        file: Target file (OBSERVATIONS, SIGNALS, GEOMETRY, STATE, COHORTS)
         key_cols: Key columns for upsert
         delete_temps: Delete temp files after merge
 
@@ -277,11 +275,11 @@ def merge_to_table(
     Example:
         >>> merge_to_table(
         ...     temp_paths,
-        ...     'vector', 'signals',
-        ...     key_cols=['signal_id', 'obs_date', 'engine', 'metric_name']
+        ...     SIGNALS,
+        ...     key_cols=['entity_id', 'signal_id', 'timestamp']
         ... )
     """
-    target_path = get_parquet_path(schema, table)
+    target_path = get_path(file)
     return merge_temp_results(temp_paths, target_path, key_cols, delete_temps)
 
 
@@ -299,8 +297,8 @@ class ParquetBatchWriter:
                 writer.append(pl.DataFrame(metrics))
 
             # Write all at once
-            writer.write_to(get_parquet_path('vector', 'signals'),
-                           key_cols=['signal_id', 'obs_date', 'engine'])
+            writer.write_to(get_path(SIGNALS),
+                           key_cols=['entity_id', 'signal_id', 'timestamp'])
     """
 
     def __init__(self, max_batch_size: int = 100_000):
@@ -381,26 +379,24 @@ class ParquetBatchWriter:
         else:
             raise ValueError(f"Unknown mode: {mode}")
 
-    def write_to_table(
+    def write_to_file(
         self,
-        schema: str,
-        table: str,
+        file: str,
         key_cols: Optional[List[str]] = None,
         mode: str = "upsert",
     ) -> int:
         """
-        Write to PRISM table.
+        Write to PRISM file.
 
         Args:
-            schema: Target schema
-            table: Target table name
+            file: Target file (OBSERVATIONS, SIGNALS, GEOMETRY, STATE, COHORTS)
             key_cols: Key columns for upsert
             mode: 'replace', 'append', or 'upsert'
 
         Returns:
             Number of rows written
         """
-        path = get_parquet_path(schema, table)
+        path = get_path(file)
         return self.write_to(path, key_cols, mode)
 
     @property

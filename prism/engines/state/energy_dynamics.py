@@ -84,8 +84,8 @@ class EnergyDynamicsEngine:
         if domain:
             # Try domain_info.json first
             try:
-                from prism.db.parquet_store import get_parquet_path
-                domain_info_path = get_parquet_path("config", "domain_info").with_suffix('.json')
+                from prism.db.parquet_store import get_data_root
+                domain_info_path = get_data_root(domain) / "domain_info.json"
                 if domain_info_path.exists():
                     with open(domain_info_path) as f:
                         return json.load(f)

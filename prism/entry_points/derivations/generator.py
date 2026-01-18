@@ -18,7 +18,15 @@ from datetime import datetime
 import numpy as np
 import polars as pl
 
-from prism.db.parquet_store import get_parquet_path
+from prism.db.parquet_store import (
+    get_path,
+    get_data_root,
+    OBSERVATIONS,
+    SIGNALS,
+    GEOMETRY,
+    STATE,
+    COHORTS,
+)
 
 
 # Registry of engines that support derivation
@@ -40,7 +48,7 @@ def get_signal_data(signal_id: str, window_idx: int = None) -> tuple:
     Returns:
         tuple: (values array, window_start, window_end, window_id)
     """
-    obs_path = get_parquet_path('raw', 'observations')
+    obs_path = get_path(OBSERVATIONS)
 
     if not os.path.exists(obs_path):
         raise FileNotFoundError(f"Observations not found: {obs_path}")
@@ -172,7 +180,7 @@ def generate_derivation(engine_name: str, signal_id: str,
         raise NotImplementedError(f"Derivation not implemented for engine: {engine_name}")
 
     # Set data path for reproducibility
-    derivation.data_path = get_parquet_path('raw', 'observations')
+    derivation.data_path = get_path(OBSERVATIONS)
 
     # Generate markdown
     markdown = derivation.to_markdown()

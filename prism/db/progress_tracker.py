@@ -33,7 +33,7 @@ from typing import Dict, List, Optional, Set
 
 import polars as pl
 
-from prism.db.parquet_store import ensure_directories, get_parquet_path
+from prism.db.parquet_store import ensure_directory, get_data_root
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,8 @@ class ProgressTracker:
         """
         self.schema = schema
         self.table = table
-        self.progress_path = get_parquet_path("config", f"progress_{schema}_{table}")
+        # Progress files stored in domain's .progress directory
+        self.progress_path = get_data_root() / ".progress" / f"progress_{schema}_{table}.parquet"
         self._cache: Optional[pl.DataFrame] = None
         self._load()
 
@@ -81,7 +82,7 @@ class ProgressTracker:
 
     def _save(self):
         """Save progress data."""
-        ensure_directories()
+        ensure_directory()
         self.progress_path.parent.mkdir(parents=True, exist_ok=True)
         self._cache.write_parquet(self.progress_path)
 

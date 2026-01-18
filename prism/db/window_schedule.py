@@ -42,13 +42,25 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import polars as pl
 
-from prism.db.parquet_store import ensure_directories, get_parquet_path
+from prism.db.parquet_store import (
+    ensure_directory,
+    get_path,
+    get_data_root,
+    OBSERVATIONS,
+    SIGNALS,
+    GEOMETRY,
+    STATE,
+    COHORTS,
+)
 from prism.db.polars_io import read_parquet, upsert_parquet, write_parquet_atomic
 from prism.utils.stride import load_stride_config
 
 logger = logging.getLogger(__name__)
 
-SCHEDULE_PATH = Path("data/config/window_schedule.parquet")
+
+def _get_schedule_path() -> Path:
+    """Get path to window schedule file."""
+    return get_data_root() / "window_schedule.parquet"
 
 
 def _compute_windows_for_signal(
@@ -106,7 +118,7 @@ def generate_schedule(
     Returns:
         Dict with counts by tier
     """
-    ensure_directories()
+    ensure_directory()
 
     # Load config
     stride_config = load_stride_config()
@@ -114,7 +126,7 @@ def generate_schedule(
         tiers = stride_config.list_windows()
 
     # Load observations
-    obs_path = get_parquet_path("raw", "observations")
+    obs_path = get_path(OBSERVATIONS)
     if not obs_path.exists():
         logger.error("No observations found")
         return {}
@@ -131,9 +143,9 @@ def generate_schedule(
 
     # Load existing schedule if not forcing
     existing = set()
-    if not force and SCHEDULE_PATH.exists():
+    if not force and _get_schedule_path().exists():
         try:
-            existing_df = pl.read_parquet(SCHEDULE_PATH)
+            existing_df = pl.read_parquet(_get_schedule_path())
             for row in existing_df.select(["signal_id", "tier", "window_end"]).iter_rows():
                 existing.add((row[0], row[1], row[2]))
         except Exception:
@@ -181,14 +193,14 @@ def generate_schedule(
     df = pl.DataFrame(rows)
 
     # Write or append
-    if force or not SCHEDULE_PATH.exists():
-        df.write_parquet(SCHEDULE_PATH)
+    if force or not _get_schedule_path().exists():
+        df.write_parquet(_get_schedule_path())
         logger.info(f"Created schedule with {len(df):,} windows")
     else:
         # Append to existing
-        existing_df = pl.read_parquet(SCHEDULE_PATH)
+        existing_df = pl.read_parquet(_get_schedule_path())
         combined = pl.concat([existing_df, df])
-        combined.write_parquet(SCHEDULE_PATH)
+        combined.write_parquet(_get_schedule_path())
         logger.info(f"Added {len(df):,} windows to schedule (total: {len(combined):,})")
 
     return counts
@@ -200,14 +212,14 @@ def get_schedule_stats() -> pl.DataFrame:
 
     Returns DataFrame with counts by tier and status.
     """
-    if not SCHEDULE_PATH.exists():
+    if not _get_schedule_path().exists():
         return pl.DataFrame({
             "tier": [],
             "status": [],
             "count": [],
         })
 
-    df = pl.read_parquet(SCHEDULE_PATH)
+    df = pl.read_parquet(_get_schedule_path())
 
     return df.group_by(["tier", "status"]).agg([
         pl.len().alias("count")
@@ -230,10 +242,10 @@ def get_pending_windows(
     Returns:
         DataFrame of pending windows
     """
-    if not SCHEDULE_PATH.exists():
+    if not _get_schedule_path().exists():
         return pl.DataFrame()
 
-    df = pl.read_parquet(SCHEDULE_PATH)
+    df = pl.read_parquet(_get_schedule_path())
     df = df.filter(pl.col("status") == "pending")
 
     if tier:
@@ -268,10 +280,10 @@ def mark_computed(
     Returns:
         True if updated, False if not found
     """
-    if not SCHEDULE_PATH.exists():
+    if not _get_schedule_path().exists():
         return False
 
-    df = pl.read_parquet(SCHEDULE_PATH)
+    df = pl.read_parquet(_get_schedule_path())
 
     # Find matching row
     mask = (
@@ -286,7 +298,7 @@ def mark_computed(
         pl.when(mask).then(pl.lit(datetime.now())).otherwise(pl.col("computed_at")).alias("computed_at"),
     ])
 
-    df.write_parquet(SCHEDULE_PATH)
+    df.write_parquet(_get_schedule_path())
     return True
 
 
@@ -304,10 +316,10 @@ def mark_batch_computed(
     Returns:
         Number of records updated
     """
-    if not SCHEDULE_PATH.exists() or not records:
+    if not _get_schedule_path().exists() or not records:
         return 0
 
-    df = pl.read_parquet(SCHEDULE_PATH)
+    df = pl.read_parquet(_get_schedule_path())
 
     # Create lookup set
     to_update = set(records)
@@ -336,7 +348,7 @@ def mark_batch_computed(
         pl.coalesce(["_new_computed_at", "computed_at"]).alias("computed_at"),
     ]).drop(["_new_status", "_new_computed_at"])
 
-    df.write_parquet(SCHEDULE_PATH)
+    df.write_parquet(_get_schedule_path())
     return len(records)
 
 
@@ -374,10 +386,10 @@ def get_orphaned_windows(stale_minutes: int = 60) -> pl.DataFrame:
     Returns:
         DataFrame of orphaned windows
     """
-    if not SCHEDULE_PATH.exists():
+    if not _get_schedule_path().exists():
         return pl.DataFrame()
 
-    df = pl.read_parquet(SCHEDULE_PATH)
+    df = pl.read_parquet(_get_schedule_path())
     df = df.filter(pl.col("status") == "in_progress")
 
     if len(df) == 0:
@@ -399,10 +411,10 @@ def reset_orphaned_to_pending(stale_minutes: int = 60) -> int:
     Returns:
         Number of windows reset
     """
-    if not SCHEDULE_PATH.exists():
+    if not _get_schedule_path().exists():
         return 0
 
-    df = pl.read_parquet(SCHEDULE_PATH)
+    df = pl.read_parquet(_get_schedule_path())
     cutoff = datetime.now() - timedelta(minutes=stale_minutes)
 
     # Find orphaned
@@ -420,7 +432,7 @@ def reset_orphaned_to_pending(stale_minutes: int = 60) -> int:
             .otherwise(pl.col("status"))
             .alias("status")
         ])
-        df.write_parquet(SCHEDULE_PATH)
+        df.write_parquet(_get_schedule_path())
         logger.info(f"Reset {count} orphaned windows to pending")
 
     return count
@@ -436,14 +448,14 @@ def reconcile_with_results() -> Dict[str, int]:
     Returns:
         Dict with counts of reconciled windows by tier
     """
-    if not SCHEDULE_PATH.exists():
+    if not _get_schedule_path().exists():
         return {}
 
-    vector_path = get_parquet_path("vector", "signals")
+    vector_path = get_path(SIGNALS)
     if not vector_path.exists():
         return {}
 
-    schedule = pl.read_parquet(SCHEDULE_PATH)
+    schedule = pl.read_parquet(_get_schedule_path())
     results = pl.read_parquet(vector_path)
 
     # Get unique computed windows from results
@@ -499,7 +511,7 @@ def reconcile_with_results() -> Dict[str, int]:
         ).then(pl.lit(now)).otherwise(pl.col("computed_at")).alias("computed_at"),
     ])
 
-    schedule.write_parquet(SCHEDULE_PATH)
+    schedule.write_parquet(_get_schedule_path())
 
     # Count by tier
     counts = to_update.group_by("tier").len().to_dicts()
@@ -512,17 +524,17 @@ def get_missing_windows(tier: Optional[str] = None) -> pl.DataFrame:
 
     Returns windows that are marked 'computed' but have no data in vector/signals.parquet.
     """
-    if not SCHEDULE_PATH.exists():
+    if not _get_schedule_path().exists():
         return pl.DataFrame()
 
-    schedule = pl.read_parquet(SCHEDULE_PATH)
+    schedule = pl.read_parquet(_get_schedule_path())
     schedule = schedule.filter(pl.col("status") == "computed")
 
     if tier:
         schedule = schedule.filter(pl.col("tier") == tier)
 
     # Load actual results
-    vector_path = get_parquet_path("vector", "signals")
+    vector_path = get_path(SIGNALS)
     if not vector_path.exists():
         return schedule  # All are missing
 

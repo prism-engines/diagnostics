@@ -78,13 +78,16 @@ print(hurst['hurst_exponent'])
 
 ```python
 import polars as pl
-from prism.db.parquet_store import get_parquet_path
+from prism.db.parquet_store import get_path, OBSERVATIONS, SIGNALS, GEOMETRY, STATE, COHORTS
 
 # Read observations
-observations = pl.read_parquet(get_parquet_path('raw', 'observations'))
+observations = pl.read_parquet(get_path(OBSERVATIONS))
 
 # Query data
 df = observations.filter(pl.col('signal_id') == 'sensor_T30')
+
+# Read signals
+signals = pl.read_parquet(get_path(SIGNALS))
 ```
 
 ### CLI Entry Points
@@ -139,22 +142,23 @@ See [engines/README.md](engines/README.md) for detailed documentation.
 
 ---
 
-## Storage Schema (v2.0 - Parquet)
+## Storage Schema (v2.0 - 5-File Architecture)
 
 ```
 data/{domain}/
-├── raw/                # Layer 0: Raw observations
-│   ├── observations.parquet
-│   └── characterization.parquet
-├── vector/             # Layer 1-2: Vector metrics + Laplace field
-│   ├── signal.parquet
-│   └── signal_field.parquet
-├── geometry/           # Layer 3: Structural snapshots
-│   ├── cohort.parquet
-│   └── signal_pair.parquet
-└── state/              # Layer 4: Temporal dynamics
-    └── signal.parquet
+├── observations.parquet  # Raw time series data
+├── signals.parquet       # Computed signal metrics
+├── geometry.parquet      # Structural relationships
+├── state.parquet         # Temporal dynamics
+└── cohorts.parquet       # Entity groupings
 ```
+
+**Schema:**
+- `observations`: entity_id, signal_id, timestamp, value
+- `signals`: entity_id, signal_id, source_signal, engine, signal_type, timestamp, value, mode_id
+- `geometry`: System structure at each timestamp
+- `state`: Dynamics at each timestamp
+- `cohorts`: Discovered entity groupings
 
 ---
 

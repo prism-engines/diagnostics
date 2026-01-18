@@ -67,7 +67,16 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from prism.db.parquet_store import ensure_directories, get_parquet_path
+from prism.db.parquet_store import (
+    ensure_directory,
+    get_data_root,
+    get_path,
+    OBSERVATIONS,
+    SIGNALS,
+    GEOMETRY,
+    STATE,
+    COHORTS,
+)
 from prism.db.polars_io import read_parquet, upsert_parquet, write_parquet_atomic
 from prism.utils.memory import (
     force_gc,
@@ -141,7 +150,11 @@ DEFAULT_ENGINE_MIN_OBS = {
     "dirac": 50,
 }
 
-# Key columns for upsert deduplication
+# Key columns for upsert deduplication (new 5-file schema)
+# signals.parquet: entity_id, signal_id, source_signal, engine, signal_type, timestamp, value, mode_id
+SIGNALS_KEY_COLS = ["entity_id", "signal_id", "timestamp"]
+
+# Legacy key columns (deprecated)
 VECTOR_KEY_COLS = ["signal_id", "obs_date", "target_obs", "engine", "metric_name"]
 
 
@@ -171,7 +184,7 @@ def get_normalization_config(domain: str = None) -> dict:
 
     # First check for adaptive domain_info (from DomainClock)
     try:
-        domain_info_path = get_parquet_path("config", "domain_info").with_suffix('.json')
+        domain_info_path = get_data_root(domain) / "domain_info.json"
         if domain_info_path.exists():
             import json
             with open(domain_info_path) as f:
@@ -213,14 +226,17 @@ def apply_regime_normalization(
     Standardizes signal behavior relative to trailing window.
     Ensures 'Source' detection is calibrated to current volatility regimes.
 
+    New 5-file schema: signals.parquet uses
+        entity_id, signal_id, source_signal, engine, signal_type, timestamp, value, mode_id
+
     Args:
         batch_rows: List of metric dicts from signal processing
         window: Rolling window size (REQUIRED - from domain config)
         min_periods: Minimum observations before computing (default 30)
 
     Returns:
-        DataFrame with original metric_value AND metric_value_norm columns.
-        metric_value_norm will be NaN for first min_periods rows (burn-in).
+        DataFrame with original value AND value_norm columns.
+        value_norm will be NaN for first min_periods rows (burn-in).
 
     Philosophy:
         - NaN during burn-in is honest accounting, not a problem to solve
@@ -230,18 +246,19 @@ def apply_regime_normalization(
     df = pl.DataFrame(batch_rows, infer_schema_length=None)
 
     if len(df) == 0:
-        return df.with_columns(pl.lit(None).cast(pl.Float64).alias("metric_value_norm"))
+        return df.with_columns(pl.lit(None).cast(pl.Float64).alias("value_norm"))
 
-    # Sort by date within each metric group (required for rolling)
-    df = df.sort(["signal_id", "engine", "metric_name", "obs_date"])
+    # Sort by timestamp within each signal group (required for rolling)
+    # In new schema, signal_id is unique per derived signal (source_engine_metric)
+    df = df.sort(["signal_id", "timestamp"])
 
-    # Apply rolling Z-score within each signal/engine/metric group
+    # Apply rolling Z-score within each signal group
     # Z = (x - rolling_mean) / (rolling_std + epsilon)
     return df.with_columns([
-        ((pl.col("metric_value") - pl.col("metric_value").rolling_mean(window, min_periods=min_periods)) /
-         (pl.col("metric_value").rolling_std(window, min_periods=min_periods) + 1e-10))
-        .over(["signal_id", "engine", "metric_name"])
-        .alias("metric_value_norm")
+        ((pl.col("value") - pl.col("value").rolling_mean(window, min_periods=min_periods)) /
+         (pl.col("value").rolling_std(window, min_periods=min_periods) + 1e-10))
+        .over(["signal_id"])
+        .alias("value_norm")
     ])
 
 # =============================================================================
@@ -327,15 +344,73 @@ def compute_pointwise_signals(
     return results
 
 
+def create_signal_row(
+    entity_id: str,
+    source_signal: str,
+    engine: str,
+    metric_name: str,
+    timestamp: Any,
+    value: float,
+    signal_type: str = 'sparse',
+) -> Dict[str, Any]:
+    """
+    Create a row in the new signals.parquet schema.
+
+    New 5-file schema: signals.parquet
+        entity_id, signal_id, source_signal, engine, signal_type, timestamp, value, mode_id
+
+    Args:
+        entity_id: The entity this signal belongs to
+        source_signal: Original signal ID
+        engine: Engine that produced this
+        metric_name: Metric name
+        timestamp: Time value
+        value: Signal value
+        signal_type: 'dense' or 'sparse'
+
+    Returns:
+        Row dictionary matching signals.parquet schema
+    """
+    # Convert timestamp to float if needed
+    ts_value = timestamp
+    if hasattr(timestamp, 'date'):
+        # datetime/date object - convert to ordinal or timestamp
+        import datetime
+        if isinstance(timestamp, datetime.date):
+            ts_value = float(timestamp.toordinal())
+        else:
+            ts_value = timestamp.timestamp()
+    elif hasattr(timestamp, 'astype'):
+        # numpy.datetime64
+        import pandas as pd
+        ts_value = float(pd.Timestamp(timestamp).timestamp())
+
+    return {
+        'entity_id': entity_id,
+        'signal_id': f"{source_signal}_{engine}_{metric_name}",
+        'source_signal': source_signal,
+        'engine': engine,
+        'signal_type': signal_type,
+        'timestamp': float(ts_value) if isinstance(ts_value, (int, float)) else ts_value,
+        'value': float(value),
+        'mode_id': None,  # Assigned by geometry layer
+    }
+
+
 def dense_signals_to_rows(
     dense_signals: List[DenseSignal],
+    entity_id: str,
     computed_at: datetime,
 ) -> List[Dict[str, Any]]:
     """
     Convert DenseSignal objects to row dictionaries for storage.
 
+    New 5-file schema: signals.parquet
+        entity_id, signal_id, source_signal, engine, signal_type, timestamp, value, mode_id
+
     Args:
         dense_signals: List of DenseSignal objects
+        entity_id: The entity this signal belongs to
         computed_at: Computation timestamp
 
     Returns:
@@ -348,17 +423,18 @@ def dense_signals_to_rows(
         for i, (t, v) in enumerate(zip(signal.timestamps, signal.values)):
             if not np.isfinite(v):
                 continue
+            # Derive signal_id from engine + metric: e.g., "hilbert_inst_amp"
+            metric_name = signal.signal_id.split('_')[-1]  # e.g. 'inst_amp'
+            derived_signal_id = f"{signal.engine}_{metric_name}"
             rows.append({
-                'signal_id': signal.source_signal,
-                'obs_date': t,
-                'target_obs': len(signal.timestamps),
-                'actual_obs': len(signal.timestamps),
-                'lookback_start': signal.timestamps[0],
+                'entity_id': entity_id,
+                'signal_id': derived_signal_id,
+                'source_signal': signal.source_signal,
                 'engine': signal.engine,
-                'metric_name': signal.signal_id.split('_')[-1],  # e.g. 'inst_amp'
-                'metric_value': float(v),
-                'computed_at': computed_at,
-                'resolution': 'dense',  # V2: Mark as native resolution
+                'signal_type': 'dense',  # Pointwise = native resolution
+                'timestamp': float(t) if isinstance(t, (int, float)) else t,
+                'value': float(v),
+                'mode_id': None,  # Assigned by geometry layer
             })
     return rows
 
@@ -432,9 +508,10 @@ def load_characterization() -> Dict[str, Dict[str, Any]]:
     DEPRECATED: Use characterize_signal_inline() instead.
     This is kept for backwards compatibility with parallel workers.
     """
-    char_path = get_parquet_path('raw', 'characterization')
+    # Legacy path - characterization not in new 5-file schema
+    char_path = get_data_root() / "characterization.parquet"
 
-    if not char_path.exists():
+    if char_path is None or not char_path.exists():
         return {}
 
     df = pl.read_parquet(char_path)
@@ -575,7 +652,7 @@ def process_signal_parallel(assignment: WorkerAssignment) -> Dict[str, Any]:
     engines_filter = config.get("engines_filter", None)
 
     # Get path for lazy scanning (read per-signal)
-    obs_path = get_parquet_path("raw", "observations")
+    obs_path = get_path(OBSERVATIONS)
 
     total_windows = 0
     total_metrics = 0
@@ -595,6 +672,9 @@ def process_signal_parallel(assignment: WorkerAssignment) -> Dict[str, Any]:
             if len(obs_df) == 0:
                 del obs_df
                 continue
+
+            # Get entity_id for this signal (from observations)
+            entity_id = obs_df["entity_id"][0] if "entity_id" in obs_df.columns and len(obs_df) > 0 else signal_id
 
             # Generate windows
             min_obs = min(engine_min_obs.values())
@@ -622,24 +702,22 @@ def process_signal_parallel(assignment: WorkerAssignment) -> Dict[str, Any]:
                         logger.debug(f"Engine {engine_name} failed for {signal_id}: {e}")
                         continue
 
-                    # Collect metrics
+                    # Collect metrics (new 5-file schema: signals.parquet)
                     for metric_name, metric_value in metrics.items():
                         try:
                             if metric_value is not None:
                                 numeric_value = float(metric_value)
                                 if np.isfinite(numeric_value):
                                     batch_rows.append(
-                                        {
-                                            "signal_id": signal_id,
-                                            "obs_date": obs_date,
-                                            "target_obs": window_days,
-                                            "actual_obs": actual_obs,
-                                            "lookback_start": lookback_start,
-                                            "engine": engine_name,
-                                            "metric_name": metric_name,
-                                            "metric_value": numeric_value,
-                                            "computed_at": computed_at,
-                                        }
+                                        create_signal_row(
+                                            entity_id=entity_id,
+                                            source_signal=signal_id,
+                                            engine=engine_name,
+                                            metric_name=metric_name,
+                                            timestamp=obs_date,
+                                            value=numeric_value,
+                                            signal_type='sparse',
+                                        )
                                     )
                         except (TypeError, ValueError):
                             continue
@@ -662,17 +740,17 @@ def process_signal_parallel(assignment: WorkerAssignment) -> Dict[str, Any]:
                                 try:
                                     numeric_value = float(metric_value)
                                     if np.isfinite(numeric_value):
-                                        batch_rows.append({
-                                            "signal_id": signal_id,
-                                            "obs_date": obs_date,
-                                            "target_obs": window_days,
-                                            "actual_obs": actual_obs,
-                                            "lookback_start": lookback_start,
-                                            "engine": "break_detector",
-                                            "metric_name": metric_name,
-                                            "metric_value": numeric_value,
-                                            "computed_at": computed_at,
-                                        })
+                                        batch_rows.append(
+                                            create_signal_row(
+                                                entity_id=entity_id,
+                                                source_signal=signal_id,
+                                                engine="break_detector",
+                                                metric_name=metric_name,
+                                                timestamp=obs_date,
+                                                value=numeric_value,
+                                                signal_type='sparse',
+                                            )
+                                        )
                                 except (TypeError, ValueError):
                                     continue
 
@@ -688,17 +766,17 @@ def process_signal_parallel(assignment: WorkerAssignment) -> Dict[str, Any]:
                                     try:
                                         numeric_value = float(metric_value)
                                         if np.isfinite(numeric_value):
-                                            batch_rows.append({
-                                                "signal_id": signal_id,
-                                                "obs_date": obs_date,
-                                                "target_obs": window_days,
-                                                "actual_obs": actual_obs,
-                                                "lookback_start": lookback_start,
-                                                "engine": "heaviside",
-                                                "metric_name": metric_name,
-                                                "metric_value": numeric_value,
-                                                "computed_at": computed_at,
-                                            })
+                                            batch_rows.append(
+                                                create_signal_row(
+                                                    entity_id=entity_id,
+                                                    source_signal=signal_id,
+                                                    engine="heaviside",
+                                                    metric_name=metric_name,
+                                                    timestamp=obs_date,
+                                                    value=numeric_value,
+                                                    signal_type='sparse',
+                                                )
+                                            )
                                     except (TypeError, ValueError):
                                         continue
 
@@ -709,17 +787,17 @@ def process_signal_parallel(assignment: WorkerAssignment) -> Dict[str, Any]:
                                     try:
                                         numeric_value = float(metric_value)
                                         if np.isfinite(numeric_value):
-                                            batch_rows.append({
-                                                "signal_id": signal_id,
-                                                "obs_date": obs_date,
-                                                "target_obs": window_days,
-                                                "actual_obs": actual_obs,
-                                                "lookback_start": lookback_start,
-                                                "engine": "dirac",
-                                                "metric_name": metric_name,
-                                                "metric_value": numeric_value,
-                                                "computed_at": computed_at,
-                                            })
+                                            batch_rows.append(
+                                                create_signal_row(
+                                                    entity_id=entity_id,
+                                                    source_signal=signal_id,
+                                                    engine="dirac",
+                                                    metric_name=metric_name,
+                                                    timestamp=obs_date,
+                                                    value=numeric_value,
+                                                    signal_type='sparse',
+                                                )
+                                            )
                                     except (TypeError, ValueError):
                                         continue
                     except Exception as e:
@@ -794,12 +872,15 @@ def process_signal_sequential(
     try:
         # Read observations - LAZY SCAN with filter pushdown
         # Only reads the specific signal's data from disk
-        obs_path = get_parquet_path("raw", "observations")
+        obs_path = get_path(OBSERVATIONS)
         obs_df = (
             pl.scan_parquet(obs_path)
             .filter(pl.col("signal_id") == signal_id)
             .collect()
         )
+
+        # Get entity_id for this signal (from observations)
+        entity_id = obs_df["entity_id"][0] if "entity_id" in obs_df.columns and len(obs_df) > 0 else signal_id
 
         if len(obs_df) == 0:
             return {"signal": signal_id, "windows": 0, "metrics": 0}
@@ -819,8 +900,8 @@ def process_signal_sequential(
             values=full_values,
         )
 
-        # Convert to row format for storage
-        dense_rows = dense_signals_to_rows(dense_signals, datetime.now())
+        # Convert to row format for storage (pass entity_id for new schema)
+        dense_rows = dense_signals_to_rows(dense_signals, entity_id, datetime.now())
 
         # =================================================================
         # INLINE CHARACTERIZATION: If engines_to_run not provided, characterize now
@@ -879,24 +960,22 @@ def process_signal_sequential(
                     logger.debug(f"Engine {engine_name} failed for {signal_id}: {e}")
                     continue
 
-                # Collect metrics
+                # Collect metrics (new 5-file schema: signals.parquet)
                 for metric_name, metric_value in metrics.items():
                     try:
                         if metric_value is not None:
                             numeric_value = float(metric_value)
                             if np.isfinite(numeric_value):
                                 batch_rows.append(
-                                    {
-                                        "signal_id": signal_id,
-                                        "obs_date": obs_date,
-                                        "target_obs": window_days,
-                                        "actual_obs": actual_obs,
-                                        "lookback_start": lookback_start,
-                                        "engine": engine_name,
-                                        "metric_name": metric_name,
-                                        "metric_value": numeric_value,
-                                        "computed_at": computed_at,
-                                    }
+                                    create_signal_row(
+                                        entity_id=entity_id,
+                                        source_signal=signal_id,
+                                        engine=engine_name,
+                                        metric_name=metric_name,
+                                        timestamp=obs_date,
+                                        value=numeric_value,
+                                        signal_type='sparse',  # Windowed = sparse
+                                    )
                                 )
                                 # Track for vector score
                                 window_metrics[metric_name] = numeric_value
@@ -917,23 +996,23 @@ def process_signal_sequential(
 
                     break_metrics = get_break_metrics(values)
 
-                    # Add break_detector metrics
+                    # Add break_detector metrics (new 5-file schema)
                     for metric_name, metric_value in break_metrics.items():
                         if metric_value is not None:
                             try:
                                 numeric_value = float(metric_value)
                                 if np.isfinite(numeric_value):
-                                    batch_rows.append({
-                                        "signal_id": signal_id,
-                                        "obs_date": obs_date,
-                                        "target_obs": window_days,
-                                        "actual_obs": actual_obs,
-                                        "lookback_start": lookback_start,
-                                        "engine": "break_detector",
-                                        "metric_name": metric_name,
-                                        "metric_value": numeric_value,
-                                        "computed_at": computed_at,
-                                    })
+                                    batch_rows.append(
+                                        create_signal_row(
+                                            entity_id=entity_id,
+                                            source_signal=signal_id,
+                                            engine="break_detector",
+                                            metric_name=metric_name,
+                                            timestamp=obs_date,
+                                            value=numeric_value,
+                                            signal_type='sparse',
+                                        )
+                                    )
                                     window_metrics[metric_name] = numeric_value
                             except (TypeError, ValueError):
                                 continue
@@ -943,46 +1022,46 @@ def process_signal_sequential(
                         break_result = compute_breaks(values)
                         break_indices = break_result['break_indices']
 
-                        # Heaviside (step function measurement)
+                        # Heaviside (step function measurement) - new 5-file schema
                         heaviside_metrics = get_heaviside_metrics(values, break_indices)
                         for metric_name, metric_value in heaviside_metrics.items():
                             if metric_value is not None:
                                 try:
                                     numeric_value = float(metric_value)
                                     if np.isfinite(numeric_value):
-                                        batch_rows.append({
-                                            "signal_id": signal_id,
-                                            "obs_date": obs_date,
-                                            "target_obs": window_days,
-                                            "actual_obs": actual_obs,
-                                            "lookback_start": lookback_start,
-                                            "engine": "heaviside",
-                                            "metric_name": metric_name,
-                                            "metric_value": numeric_value,
-                                            "computed_at": computed_at,
-                                        })
+                                        batch_rows.append(
+                                            create_signal_row(
+                                                entity_id=entity_id,
+                                                source_signal=signal_id,
+                                                engine="heaviside",
+                                                metric_name=metric_name,
+                                                timestamp=obs_date,
+                                                value=numeric_value,
+                                                signal_type='sparse',
+                                            )
+                                        )
                                         window_metrics[metric_name] = numeric_value
                                 except (TypeError, ValueError):
                                     continue
 
-                        # Dirac (impulse measurement)
+                        # Dirac (impulse measurement) - new 5-file schema
                         dirac_metrics = get_dirac_metrics(values, break_indices)
                         for metric_name, metric_value in dirac_metrics.items():
                             if metric_value is not None:
                                 try:
                                     numeric_value = float(metric_value)
                                     if np.isfinite(numeric_value):
-                                        batch_rows.append({
-                                            "signal_id": signal_id,
-                                            "obs_date": obs_date,
-                                            "target_obs": window_days,
-                                            "actual_obs": actual_obs,
-                                            "lookback_start": lookback_start,
-                                            "engine": "dirac",
-                                            "metric_name": metric_name,
-                                            "metric_value": numeric_value,
-                                            "computed_at": computed_at,
-                                        })
+                                        batch_rows.append(
+                                            create_signal_row(
+                                                entity_id=entity_id,
+                                                source_signal=signal_id,
+                                                engine="dirac",
+                                                metric_name=metric_name,
+                                                timestamp=obs_date,
+                                                value=numeric_value,
+                                                signal_type='sparse',
+                                            )
+                                        )
                                         window_metrics[metric_name] = numeric_value
                                 except (TypeError, ValueError):
                                     continue
@@ -1000,37 +1079,45 @@ def process_signal_sequential(
                 # Compute score
                 scores = compute_vector_score(window_metrics, baselines)
 
-                # Add score metrics
+                # Add score metrics (new 5-file schema)
                 for score_name, score_value in scores.items():
                     if score_name in ('n_engines', 'total_weight'):
                         continue  # Skip metadata
                     if score_value is not None and not np.isnan(score_value):
                         batch_rows.append(
-                            {
-                                "signal_id": signal_id,
-                                "obs_date": obs_date,
-                                "target_obs": window_days,
-                                "actual_obs": actual_obs,
-                                "lookback_start": lookback_start,
-                                "engine": "vector_score",
-                                "metric_name": score_name,
-                                "metric_value": float(score_value),
-                                "computed_at": computed_at,
-                            }
+                            create_signal_row(
+                                entity_id=entity_id,
+                                source_signal=signal_id,
+                                engine="vector_score",
+                                metric_name=score_name,
+                                timestamp=obs_date,
+                                value=float(score_value),
+                                signal_type='sparse',
+                            )
                         )
 
         # INLINE LAPLACE: Compute field vectors if requested
         field_rows = []
         if compute_laplace_inline and len(batch_rows) > 0:
-            # Group batch_rows by (engine, metric_name) for laplace computation
+            # Group batch_rows by (engine, signal_id) for laplace computation
+            # In new schema, signal_id = "{source_signal}_{engine}_{metric}"
             from collections import defaultdict
             metric_series = defaultdict(list)
 
             for row in batch_rows:
-                key = (row['engine'], row['metric_name'])
+                # Extract engine and metric from signal_id: "{source}_{engine}_{metric}"
+                parts = row['signal_id'].split('_')
+                if len(parts) >= 2:
+                    engine = row['engine']
+                    # metric_name is the part after source and engine
+                    metric_name = '_'.join(parts[2:]) if len(parts) > 2 else parts[-1]
+                else:
+                    engine = row['engine']
+                    metric_name = row['signal_id']
+                key = (engine, metric_name)
                 metric_series[key].append({
-                    'obs_date': row['obs_date'],
-                    'metric_value': row['metric_value'],
+                    'obs_date': row['timestamp'],  # New schema uses 'timestamp'
+                    'metric_value': row['value'],  # New schema uses 'value'
                 })
 
             # Compute laplace for each metric series
@@ -1119,7 +1206,8 @@ def run_window_tier(
     from prism.db.progress_tracker import ProgressTracker
 
     tracker = ProgressTracker("vector", "signal")
-    target_path = get_parquet_path("vector", "signal")
+    # New 5-file schema: all signals go to signals.parquet
+    target_path = get_path(SIGNALS)
 
     # Filter to pending signals (resume capability)
     pending = tracker.get_pending(signals, window_name)
@@ -1131,8 +1219,8 @@ def run_window_tier(
     # Batch accumulator - reduced to 1 for very large datasets (TEP: 175k obs/signal)
     BATCH_SIZE = 1
     batch_rows = []
-    batch_field_rows = []  # Field vectors (laplace)
-    batch_dense_rows = []  # V2: Native resolution pointwise output
+    batch_field_rows = []  # Field vectors (laplace) - internal, not in 5-file schema
+    batch_dense_rows = []  # Dense signals also go to signals.parquet with signal_type='dense'
     batch_signals = []
     total_windows = 0
     total_metrics = 0
@@ -1140,11 +1228,11 @@ def run_window_tier(
     total_dense_rows = 0  # V2: Track dense signal rows
     errors = []
 
-    # Paths
-    field_path = get_parquet_path("vector", "signal_field")
-    dense_path = get_parquet_path("vector", "signal_dense")  # V2: Native resolution output
-    FIELD_KEY_COLS = ["signal_id", "window_end", "engine", "metric_name"]
-    DENSE_KEY_COLS = ["signal_id", "obs_date", "engine", "metric_name"]  # V2: Dense key cols
+    # Laplace field data goes to signals.parquet (laplace is internal to geometry)
+    field_path = get_path(SIGNALS)
+    FIELD_KEY_COLS = SIGNALS_KEY_COLS
+    # New schema key columns for signals.parquet
+    # Dense signals also go to signals.parquet
 
     if verbose:
         if skipped > 0:
@@ -1189,17 +1277,17 @@ def run_window_tier(
         # Write batch when full - COMPUTE → WRITE → RELEASE pattern
         if len(batch_signals) >= BATCH_SIZE:
             if batch_rows:
-                # WRITE vector rows with regime normalization
+                # WRITE sparse (windowed) signals with regime normalization
                 norm_config = get_normalization_config()
                 df = apply_regime_normalization(
                     batch_rows,
                     window=norm_config['window'],
                     min_periods=norm_config.get('min_periods', 30),
                 )
-                upsert_parquet(df, target_path, VECTOR_KEY_COLS)
+                upsert_parquet(df, target_path, SIGNALS_KEY_COLS)
                 total_metrics += len(batch_rows)
 
-                # WRITE field rows (laplace)
+                # WRITE field rows (laplace) - internal, not in 5-file schema
                 if batch_field_rows:
                     field_df = pl.DataFrame(batch_field_rows, infer_schema_length=None)
                     upsert_parquet(field_df, field_path, FIELD_KEY_COLS)
@@ -1207,10 +1295,10 @@ def run_window_tier(
                     del field_df
                     batch_field_rows = []
 
-                # V2: WRITE dense rows (pointwise native resolution)
+                # WRITE dense (pointwise) signals - also go to signals.parquet
                 if batch_dense_rows:
                     dense_df = pl.DataFrame(batch_dense_rows, infer_schema_length=None)
-                    upsert_parquet(dense_df, dense_path, DENSE_KEY_COLS)
+                    upsert_parquet(dense_df, target_path, SIGNALS_KEY_COLS)  # Same file!
                     total_dense_rows += len(batch_dense_rows)
                     del dense_df
                     batch_dense_rows = []
@@ -1241,27 +1329,27 @@ def run_window_tier(
 
     # Final batch write - COMPUTE → WRITE → RELEASE
     if batch_rows:
-        # WRITE vector rows with regime normalization
+        # WRITE sparse (windowed) signals with regime normalization
         norm_config = get_normalization_config()
         df = apply_regime_normalization(
             batch_rows,
             window=norm_config['window'],
             min_periods=norm_config.get('min_periods', 30),
         )
-        upsert_parquet(df, target_path, VECTOR_KEY_COLS)
+        upsert_parquet(df, target_path, SIGNALS_KEY_COLS)
         total_metrics += len(batch_rows)
 
-        # WRITE remaining field rows (laplace)
+        # WRITE remaining field rows (laplace) - internal
         if batch_field_rows:
             field_df = pl.DataFrame(batch_field_rows, infer_schema_length=None)
             upsert_parquet(field_df, field_path, FIELD_KEY_COLS)
             total_field_rows += len(batch_field_rows)
             del field_df
 
-        # V2: WRITE remaining dense rows (pointwise native resolution)
+        # WRITE remaining dense (pointwise) signals - also to signals.parquet
         if batch_dense_rows:
             dense_df = pl.DataFrame(batch_dense_rows, infer_schema_length=None)
-            upsert_parquet(dense_df, dense_path, DENSE_KEY_COLS)
+            upsert_parquet(dense_df, target_path, SIGNALS_KEY_COLS)  # Same file!
             total_dense_rows += len(batch_dense_rows)
             del dense_df
 
@@ -1307,21 +1395,21 @@ def run_window_tier(
 
 def get_signals(cohort: Optional[str] = None) -> List[str]:
     """Get signal IDs from parquet files."""
-    obs_path = get_parquet_path("raw", "observations")
+    obs_path = get_path(OBSERVATIONS)
     if not obs_path.exists():
         return []
 
     if cohort:
-        # Filter by cohort membership
-        members_path = get_parquet_path("config", "cohort_members")
-        if members_path.exists():
-            members = pl.read_parquet(members_path)
+        # Filter by cohort membership from cohorts.parquet
+        cohorts_path = get_path(COHORTS)
+        if cohorts_path.exists():
+            members = pl.read_parquet(cohorts_path)
             signal_ids = (
                 members.filter(pl.col("cohort_id") == cohort)["signal_id"].unique().to_list()
             )
             return signal_ids
 
-    # All signals
+    # All signals (unique signal_id from observations)
     df = pl.scan_parquet(obs_path).select("signal_id").unique().collect()
     return df["signal_id"].to_list()
 
@@ -1348,7 +1436,7 @@ def run_adaptive_vectors(
     import json
 
     # Ensure directories exist
-    ensure_directories()
+    ensure_directory()
 
     # Get signals if not provided
     if signals is None:
@@ -1382,7 +1470,7 @@ def run_adaptive_vectors(
     # Sample signals for frequency estimation (use lazy scan with filter pushdown)
     sample_size = min(100, len(signals))
     sample_signals = signals[:sample_size]
-    obs_path = get_parquet_path("raw", "observations")
+    obs_path = get_path(OBSERVATIONS)
     sample_obs = (
         pl.scan_parquet(obs_path)
         .filter(pl.col('signal_id').is_in(sample_signals))
@@ -1393,7 +1481,7 @@ def run_adaptive_vectors(
     window_config = clock.get_window_config()
 
     # Save domain_info for downstream layers (laplace, geometry, state)
-    domain_info_path = get_parquet_path("config", "domain_info").with_suffix('.json')
+    domain_info_path = get_data_root() / "domain_info.json"
     domain_info_path.parent.mkdir(parents=True, exist_ok=True)
     with open(domain_info_path, 'w') as f:
         json.dump(clock.to_parquet_metadata(), f, indent=2, default=str)
@@ -1478,7 +1566,7 @@ def run_cohort_vector_aggregation(
     print("=" * 80)
 
     # Load signal vectors
-    signal_path = get_parquet_path("vector", "signal")
+    signal_path = get_path(SIGNALS)
     if not signal_path.exists():
         print(f"ERROR: No signal vectors found at {signal_path}")
         print("Run --signal mode first to compute signal vectors.")
@@ -1489,12 +1577,12 @@ def run_cohort_vector_aggregation(
     print(f"  Loaded {len(vectors_df):,} signal vector rows")
 
     # Load cohort membership
-    members_path = get_parquet_path("config", "cohort_members")
-    if not members_path.exists():
-        print(f"ERROR: No cohort membership found at {members_path}")
+    cohorts_path = get_path(COHORTS)
+    if not cohorts_path.exists():
+        print(f"ERROR: No cohort membership found at {cohorts_path}")
         return {"status": "error", "reason": "no cohort membership"}
 
-    members_df = pl.read_parquet(members_path)
+    members_df = pl.read_parquet(cohorts_path)
     print(f"  Loaded {len(members_df):,} cohort membership rows")
 
     # Join vectors with cohort membership
@@ -1538,8 +1626,8 @@ def run_cohort_vector_aggregation(
         for col in sample.columns:
             print(f"  {col}: {sample[col][0]}")
 
-    # Write output
-    output_path = get_parquet_path("vector", "cohort")
+    # Write output - cohort vectors go to geometry.parquet
+    output_path = get_path(GEOMETRY)
     print()
     print(f"Writing to {output_path}...")
 
@@ -1599,7 +1687,7 @@ def run_sliding_vectors(
     import os
 
     # Ensure directories exist
-    ensure_directories()
+    ensure_directory()
 
     # Get configuration
     engine_min_obs = DEFAULT_ENGINE_MIN_OBS.copy()
@@ -1795,10 +1883,10 @@ if __name__ == "__main__":
     elif args.signal:
         items = get_signals(filter_cohort)
     else:
-        # Cohort mode: get cohort list from cohort_members
-        members_path = get_parquet_path("config", "cohort_members")
-        if members_path.exists():
-            items = pl.read_parquet(members_path)["cohort_id"].unique().to_list()
+        # Cohort mode: get cohort list from cohorts.parquet
+        cohorts_path = get_path(COHORTS)
+        if cohorts_path.exists():
+            items = pl.read_parquet(cohorts_path)["cohort_id"].unique().to_list()
         else:
             items = []
 

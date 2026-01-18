@@ -4,19 +4,19 @@ PRISM Query Layer
 Polars-based query utilities for Parquet files.
 
 Key Functions:
-    describe_table(schema, table) - Get column information for a table
-    table_stats(schema, table) - Get basic statistics for a table
+    describe_file(file) - Get column information for a file
+    file_stats(file) - Get basic statistics for a file
 
 Note:
     SQL query functions have been removed. Use Polars DataFrame operations
     directly instead:
 
     >>> import polars as pl
-    >>> from prism.db import read_table
+    >>> from prism.db import read_file, get_path, OBSERVATIONS, SIGNALS
     >>>
     >>> # Read and filter
-    >>> observations = read_table('raw', 'observations')
-    >>> spy_data = observations.filter(pl.col('signal_id') == 'SENSOR_01')
+    >>> observations = read_file(OBSERVATIONS)
+    >>> sensor_data = observations.filter(pl.col('signal_id') == 'SENSOR_01')
     >>>
     >>> # Aggregations
     >>> avg_by_signal = observations.group_by('signal_id').agg(
@@ -24,42 +24,41 @@ Note:
     ... )
     >>>
     >>> # Joins
-    >>> from prism.db import get_parquet_path
-    >>> obs = pl.read_parquet(get_parquet_path('raw', 'observations'))
-    >>> members = pl.read_parquet(get_parquet_path('config', 'cohort_members'))
-    >>> joined = obs.join(members, on='signal_id')
+    >>> obs = pl.read_parquet(get_path(OBSERVATIONS))
+    >>> cohorts = pl.read_parquet(get_path(COHORTS))
+    >>> joined = obs.join(cohorts, on='entity_id')
 """
 
 import polars as pl
 
-from prism.db.parquet_store import get_parquet_path
+from prism.db.parquet_store import get_path, OBSERVATIONS, SIGNALS, GEOMETRY, STATE, COHORTS
 
 
-def describe_table(schema: str, table: str) -> pl.DataFrame:
+def describe_file(file: str) -> pl.DataFrame:
     """
-    Get column information for a parquet table.
+    Get column information for a parquet file.
 
     Args:
-        schema: Schema name
-        table: Table name
+        file: File constant (OBSERVATIONS, SIGNALS, GEOMETRY, STATE, COHORTS)
 
     Returns:
         DataFrame with column_name, column_type columns
 
     Example:
-        >>> describe_table('raw', 'observations')
-        shape: (3, 2)
+        >>> describe_file(OBSERVATIONS)
+        shape: (4, 2)
         +--------------+-------------+
         | column_name  | column_type |
         | ---          | ---         |
         | str          | str         |
         +==============+=============+
-        | signal_id | Utf8        |
-        | obs_date     | Date        |
+        | entity_id    | Utf8        |
+        | signal_id    | Utf8        |
+        | timestamp    | Float64     |
         | value        | Float64     |
         +--------------+-------------+
     """
-    path = get_parquet_path(schema, table)
+    path = get_path(file)
     if not path.exists():
         return pl.DataFrame({"column_name": [], "column_type": []})
 
@@ -74,23 +73,22 @@ def describe_table(schema: str, table: str) -> pl.DataFrame:
     )
 
 
-def table_stats(schema: str, table: str) -> dict:
+def file_stats(file: str) -> dict:
     """
-    Get basic statistics for a parquet table.
+    Get basic statistics for a parquet file.
 
     Args:
-        schema: Schema name
-        table: Table name
+        file: File constant (OBSERVATIONS, SIGNALS, GEOMETRY, STATE, COHORTS)
 
     Returns:
         Dict with row_count, column_count, file_size_bytes
 
     Example:
-        >>> stats = table_stats('raw', 'observations')
+        >>> stats = file_stats(OBSERVATIONS)
         >>> print(stats)
-        {'row_count': 50000, 'column_count': 3, 'file_size_bytes': 1234567}
+        {'row_count': 50000, 'column_count': 4, 'file_size_bytes': 1234567}
     """
-    path = get_parquet_path(schema, table)
+    path = get_path(file)
 
     if not path.exists():
         return {"row_count": 0, "column_count": 0, "file_size_bytes": 0}
@@ -107,33 +105,49 @@ def table_stats(schema: str, table: str) -> dict:
     }
 
 
+# Backwards compatible aliases
+describe_table = describe_file
+table_stats = file_stats
+
+
 # CLI support
 if __name__ == "__main__":
     import argparse
+    import os
     import sys
 
     parser = argparse.ArgumentParser(description="PRISM Query Interface")
-    parser.add_argument("--describe", "-d", help="Describe table (format: schema.table)")
-    parser.add_argument("--stats", help="Show stats for table (format: schema.table)")
+    parser.add_argument("--domain", help="Domain name (cmapss, tep, femto, etc.)")
+    parser.add_argument("--describe", "-d", help="Describe file (observations, signals, geometry, state, cohorts)")
+    parser.add_argument("--stats", help="Show stats for file")
 
     args = parser.parse_args()
 
+    if args.domain:
+        os.environ["PRISM_DOMAIN"] = args.domain
+
+    FILE_MAP = {
+        "observations": OBSERVATIONS,
+        "signals": SIGNALS,
+        "geometry": GEOMETRY,
+        "state": STATE,
+        "cohorts": COHORTS,
+    }
+
     if args.describe:
-        parts = args.describe.split(".")
-        if len(parts) != 2:
-            print("Error: Use format schema.table (e.g., raw.observations)")
+        file = FILE_MAP.get(args.describe.lower())
+        if not file:
+            print(f"Error: Unknown file '{args.describe}'. Use: observations, signals, geometry, state, cohorts")
             sys.exit(1)
-        schema, table = parts
-        result = describe_table(schema, table)
+        result = describe_file(file)
         print(result)
 
     elif args.stats:
-        parts = args.stats.split(".")
-        if len(parts) != 2:
-            print("Error: Use format schema.table (e.g., raw.observations)")
+        file = FILE_MAP.get(args.stats.lower())
+        if not file:
+            print(f"Error: Unknown file '{args.stats}'. Use: observations, signals, geometry, state, cohorts")
             sys.exit(1)
-        schema, table = parts
-        stats = table_stats(schema, table)
+        stats = file_stats(file)
         for k, v in stats.items():
             print(f"{k}: {v:,}" if isinstance(v, int) else f"{k}: {v}")
 

@@ -82,7 +82,16 @@ import pandas as pd
 import polars as pl
 from scipy import stats
 
-from prism.db.parquet_store import ensure_directories, get_parquet_path
+from prism.db.parquet_store import (
+    ensure_directory,
+    get_path,
+    get_data_root,
+    OBSERVATIONS,
+    SIGNALS,
+    GEOMETRY,
+    STATE,
+    COHORTS,
+)
 from prism.db.polars_io import read_parquet, upsert_parquet
 
 from prism.config.windows import get_window_weight
@@ -117,7 +126,7 @@ MIN_WINDOWS_FOR_CONSERVATION_TEST = 10
 
 def load_signal_state() -> pl.DataFrame:
     """Load signal state over time."""
-    path = get_parquet_path('state', 'signal')
+    path = get_path(STATE)
     if not path.exists():
         raise FileNotFoundError(f"Signal state not found at {path}")
     return pl.read_parquet(path)
@@ -125,7 +134,7 @@ def load_signal_state() -> pl.DataFrame:
 
 def load_cohort_state() -> pl.DataFrame:
     """Load cohort state over time."""
-    path = get_parquet_path('state', 'cohort')
+    path = get_path(STATE)
     if not path.exists():
         raise FileNotFoundError(f"Cohort state not found at {path}")
     return pl.read_parquet(path)
@@ -702,7 +711,7 @@ def run_physics(
     Returns:
         Dict with processing statistics
     """
-    ensure_directories()
+    ensure_directory()
 
     # Load state data
     if verbose:
@@ -814,24 +823,24 @@ def run_physics(
                 })
                 conservation_rows.append(action_test)
 
-    # Store results
+    # Store results (physics outputs go to state file)
     if signal_physics_rows:
         df = pl.DataFrame(signal_physics_rows, infer_schema_length=None)
-        path = get_parquet_path('physics', 'signal')
+        path = get_path(STATE)
         upsert_parquet(df, path, INDICATOR_PHYSICS_KEY_COLS)
         if verbose:
             print(f"\nWrote {len(signal_physics_rows):,} signal physics rows", flush=True)
 
     if cohort_physics_rows:
         df = pl.DataFrame(cohort_physics_rows, infer_schema_length=None)
-        path = get_parquet_path('physics', 'cohort')
+        path = get_path(STATE)
         upsert_parquet(df, path, COHORT_PHYSICS_KEY_COLS)
         if verbose:
             print(f"Wrote {len(cohort_physics_rows):,} cohort physics rows", flush=True)
 
     if conservation_rows:
         df = pl.DataFrame(conservation_rows, infer_schema_length=None)
-        path = get_parquet_path('physics', 'conservation')
+        path = get_path(STATE)
         upsert_parquet(df, path, CONSERVATION_KEY_COLS)
         if verbose:
             print(f"Wrote {len(conservation_rows):,} conservation test rows", flush=True)

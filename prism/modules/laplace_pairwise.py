@@ -11,7 +11,7 @@ from pathlib import Path
 from datetime import datetime
 import logging
 
-from prism.db.parquet_store import ensure_directories, get_parquet_path
+from prism.db.parquet_store import ensure_directory, get_path, get_data_root, SIGNALS, GEOMETRY
 from prism.db.polars_io import write_parquet_atomic, get_file_size_mb
 from prism.utils.stride import load_stride_config, get_default_tiers, get_drilldown_tiers
 
@@ -75,10 +75,10 @@ def run_laplace_pairwise_vectorized(
     Uses Polars self-join instead of Python loops.
     """
 
-    ensure_directories()
+    ensure_directory()
 
     # Load Laplace field data with lazy scan and filter pushdown
-    path = get_parquet_path('vector', 'signal_field')
+    path = get_path(SIGNALS)
     if not Path(path).exists():
         raise FileNotFoundError(f"Run laplace.py first: {path}")
 
@@ -208,7 +208,7 @@ def run_laplace_pairwise_vectorized(
     if all_results:
         result = pl.concat(all_results)
 
-        output_path = get_parquet_path('geometry', 'laplace_pair')
+        output_path = get_path(GEOMETRY)
         write_parquet_atomic(result, output_path)
         logger.info(f"Wrote {len(result):,} rows to {output_path}")
 
@@ -229,9 +229,9 @@ def run_laplace_pairwise_windowed(
     Single Polars pipeline: aggregate → self-join → filter → compute.
     """
 
-    ensure_directories()
+    ensure_directory()
 
-    path = get_parquet_path('vector', 'signal_field')
+    path = get_path(SIGNALS)
 
     file_size_mb = get_file_size_mb(path)
     logger.info(f"Loading {path} ({file_size_mb:.0f} MB)")
@@ -334,7 +334,7 @@ def run_laplace_pairwise_windowed(
     logger.info(f"Computed {len(pairwise):,} pair-windows")
 
     # Write output
-    output_path = get_parquet_path('geometry', 'laplace_pair_windowed')
+    output_path = get_path(GEOMETRY)
     write_parquet_atomic(pairwise, output_path)
     logger.info(f"Wrote {len(pairwise):,} rows to {output_path}")
 

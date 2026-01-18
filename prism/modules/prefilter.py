@@ -22,7 +22,7 @@ import numpy as np
 from pathlib import Path
 from typing import Tuple
 
-from prism.db.parquet_store import get_parquet_path, ensure_directories
+from prism.db.parquet_store import get_path, get_data_root, ensure_directory, OBSERVATIONS
 from prism.db.polars_io import write_parquet_atomic
 
 
@@ -324,17 +324,17 @@ Uses Laplacian on raw observations to:
     )
 
     args = parser.parse_args()
-    ensure_directories()
+    ensure_directory()
 
     # Load observations using lazy scan (enables streaming for large files)
-    obs_path = get_parquet_path('raw', 'observations')
+    obs_path = get_path(OBSERVATIONS)
     if not args.quiet:
         print(f"Loading: {obs_path}")
 
     # Only load columns needed for prefilter (reduces memory)
     observations = (
         pl.scan_parquet(obs_path)
-        .select(['signal_id', 'obs_date', 'value'])
+        .select(['signal_id', 'timestamp', 'value'])
         .collect()
     )
 
@@ -352,7 +352,8 @@ Uses Laplacian on raw observations to:
         'status': ['keep'] * len(keep_signals)
     })
 
-    output_path = get_parquet_path('config', 'prefilter')
+    # prefilter is a config file, not one of the 5 core files
+    output_path = get_data_root() / "prefilter.parquet"
     write_parquet_atomic(filter_df, output_path)
 
     if not args.quiet:

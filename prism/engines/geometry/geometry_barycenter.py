@@ -41,7 +41,16 @@ from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
 import warnings
 
-from prism.db.parquet_store import get_parquet_path, table_exists
+from prism.db.parquet_store import (
+    get_path,
+    get_data_root,
+    file_exists,
+    OBSERVATIONS,
+    SIGNALS,
+    GEOMETRY,
+    STATE,
+    COHORTS,
+)
 from prism.db.polars_io import read_parquet, upsert_parquet
 
 warnings.filterwarnings('ignore')
@@ -83,11 +92,11 @@ class GeometryEngine:
         self.feature_cols = None
 
         # Paths to parquet files
-        self._vectors_path = get_parquet_path('vector', 'signals')
-        self._geometry_signals_path = get_parquet_path('geometry', 'signals')
-        self._geometry_pairs_path = get_parquet_path('geometry', 'pairs')
-        self._geometry_structure_path = get_parquet_path('geometry', 'structure')
-        self._geometry_displacement_path = get_parquet_path('geometry', 'displacement')
+        self._vectors_path = get_path(SIGNALS)
+        self._geometry_signals_path = get_path(GEOMETRY)
+        self._geometry_pairs_path = get_path(GEOMETRY)
+        self._geometry_structure_path = get_path(GEOMETRY)
+        self._geometry_displacement_path = get_path(GEOMETRY)
 
     def _load_weights(self) -> dict:
         """Load barycenter weights from config. Fails if not configured."""

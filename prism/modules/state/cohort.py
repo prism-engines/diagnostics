@@ -45,7 +45,16 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any
 from collections import Counter
 
-from prism.db.parquet_store import get_parquet_path, ensure_directories
+from prism.db.parquet_store import (
+    get_path,
+    get_data_root,
+    ensure_directory,
+    OBSERVATIONS,
+    SIGNALS,
+    GEOMETRY,
+    STATE,
+    COHORTS,
+)
 from prism.db.polars_io import upsert_parquet, write_parquet_atomic
 from prism.utils.domain import require_domain
 
@@ -66,7 +75,7 @@ STATE_COLUMNS = [
 
 def get_cohort_ids(domain: str) -> List[str]:
     """Get all cohort IDs for the domain."""
-    members_path = get_parquet_path('config', 'cohort_members', domain)
+    members_path = get_path(COHORTS, domain)
     if not members_path.exists():
         return ['default']
 
@@ -252,14 +261,14 @@ def run_cohort_state(
     Returns:
         Summary statistics
     """
-    ensure_directories(domain)
+    ensure_directory(domain)
 
     # Default exclude patterns
     if exclude_patterns is None:
         exclude_patterns = ['FAULT']
 
     # Get field path
-    field_path = get_parquet_path('vector', 'signal_field', domain)
+    field_path = get_path(SIGNALS, domain)
     if not field_path.exists():
         raise FileNotFoundError(f"Field data not found: {field_path}")
 
@@ -415,7 +424,7 @@ def run_cohort_state(
                 print(f"  Classification failed: {e}")
 
     # Write output
-    output_path = get_parquet_path('state', 'cohort', domain)
+    output_path = get_path(STATE, domain)
     write_parquet_atomic(result_df, output_path)
 
     total_transitions = len(transitions_df)

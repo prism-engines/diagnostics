@@ -64,7 +64,16 @@ from typing import Dict, List, Any, Optional, Tuple
 from multiprocessing import Pool, cpu_count
 import warnings
 
-from prism.db.parquet_store import ensure_directories, get_parquet_path
+from prism.db.parquet_store import (
+    ensure_directory,
+    get_data_root,
+    get_path,
+    OBSERVATIONS,
+    SIGNALS,
+    GEOMETRY,
+    STATE,
+    COHORTS,
+)
 from prism.db.polars_io import (
     read_parquet,
     read_parquet_smart,
@@ -127,7 +136,7 @@ def load_domain_info() -> Optional[Dict[str, Any]]:
     domain = os.environ.get('PRISM_DOMAIN')
     if not domain:
         return None
-    domain_info_path = get_parquet_path("config", "domain_info").with_suffix('.json')
+    domain_info_path = get_data_root(domain) / "domain_info.json"
     if domain_info_path.exists():
         try:
             with open(domain_info_path) as f:
@@ -217,12 +226,14 @@ def get_redundant_signals() -> set:
 
 
 def get_date_range() -> Tuple[date, date]:
-    """Get available date range from raw observations (lazy query)."""
+    """Get available date range from observations (lazy query)."""
     # Use lazy scan - only reads metadata, not full file
-    lf = pl.scan_parquet(get_parquet_path('raw', 'observations'))
+    lf = pl.scan_parquet(get_path(OBSERVATIONS))
+    # New schema uses 'timestamp' instead of 'obs_date'
+    ts_col = 'timestamp' if 'timestamp' in lf.collect_schema().names() else 'obs_date'
     result = lf.select([
-        pl.col('obs_date').min().alias('min_date'),
-        pl.col('obs_date').max().alias('max_date'),
+        pl.col(ts_col).min().alias('min_date'),
+        pl.col(ts_col).max().alias('max_date'),
     ]).collect()
     min_date = result['min_date'][0]
     max_date = result['max_date'][0]
@@ -252,7 +263,7 @@ def get_cohort_signals(cohort: str) -> List[str]:
         if _REDUNDANT_INDICATORS:
             logger.info(f"Excluding {len(_REDUNDANT_INDICATORS)} redundant signals from filter_deep")
 
-    cohort_members = pl.read_parquet(get_parquet_path('config', 'cohort_members'))
+    cohort_members = pl.read_parquet(get_path(COHORTS))
     # Handle both 'cohort_id' and 'cohort' column names
     cohort_col = 'cohort_id' if 'cohort_id' in cohort_members.columns else 'cohort'
     signals = cohort_members.filter(
@@ -268,7 +279,7 @@ def get_cohort_signals(cohort: str) -> List[str]:
 
 def get_all_cohorts() -> List[str]:
     """Get list of all cohorts."""
-    cohort_members = pl.read_parquet(get_parquet_path('config', 'cohort_members'))
+    cohort_members = pl.read_parquet(get_path(COHORTS))
     # Handle both 'cohort_id' and 'cohort' column names
     cohort_col = 'cohort_id' if 'cohort_id' in cohort_members.columns else 'cohort'
     return cohort_members.select(cohort_col).unique().sort(cohort_col).to_series().to_list()
@@ -291,7 +302,7 @@ def get_cohort_data_matrix(
 
     # Lazy scan with filter pushdown (memory efficient)
     filtered = (
-        pl.scan_parquet(get_parquet_path('raw', 'observations'))
+        pl.scan_parquet(get_path(OBSERVATIONS))
         .filter(
             (pl.col('signal_id').is_in(signals)) &
             (pl.col('obs_date') >= window_start) &
@@ -346,7 +357,7 @@ def get_pairwise_data(
     window_start = window_end - timedelta(days=window_days)
 
     # Lazy scan with filter pushdown (memory efficient)
-    obs_path = get_parquet_path('raw', 'observations')
+    obs_path = get_path(OBSERVATIONS)
 
     # Get data for both signals
     data_a = (
@@ -402,7 +413,7 @@ def get_signal_window_vectors(
 
     # Lazy scan with cohort filter pushdown (memory efficient)
     obs_cohort = (
-        pl.scan_parquet(get_parquet_path('raw', 'observations'))
+        pl.scan_parquet(get_path(OBSERVATIONS))
         .filter(pl.col('signal_id').is_in(signals))
         .collect()
     )
@@ -719,7 +730,7 @@ def compute_mode_metrics(
     # Try to load Laplace field data if not provided (lazy scan with filter)
     if field_df is None:
         try:
-            field_path = get_parquet_path('vector', 'signal_field')
+            field_path = get_path(SIGNALS)
             if Path(field_path).exists():
                 # Lazy scan with filter pushdown for cohort signals
                 field_df = (
@@ -780,7 +791,7 @@ def compute_wavelet_metrics(
     if observations is None:
         try:
             # Use lazy scan with filter pushdown for cohort
-            lazy_obs = pl.scan_parquet(get_parquet_path('raw', 'observations'))
+            lazy_obs = pl.scan_parquet(get_path(OBSERVATIONS))
             schema = lazy_obs.collect_schema()
             if 'cohort_id' in schema.names():
                 observations = lazy_obs.filter(pl.col('cohort_id') == cohort).collect()
@@ -814,7 +825,7 @@ def compute_wavelet_metrics(
 
 def ensure_schema():
     """Ensure geometry directory exists."""
-    ensure_directories()
+    ensure_directory()
 
 
 # Key columns for upsert operations
@@ -829,10 +840,8 @@ def store_cohort_geometry_batch(rows: List[Dict[str, Any]], weighted: bool = Fal
 
     df = pl.DataFrame(rows, infer_schema_length=None)
 
-    # Always write both versions
-    df_unweighted = df.drop('window_weight') if 'window_weight' in df.columns else df
-    upsert_parquet(df_unweighted, get_parquet_path('geometry', 'cohort'), GEOMETRY_COHORT_KEY_COLS)
-    upsert_parquet(df, get_parquet_path('geometry', 'cohort_weighted'), GEOMETRY_COHORT_KEY_COLS)
+    # New 5-file schema: all geometry goes to geometry.parquet
+    upsert_parquet(df, get_path(GEOMETRY), GEOMETRY_COHORT_KEY_COLS)
 
     logger.info(f"Wrote {len(rows)} cohort geometry rows")
 
@@ -893,16 +902,14 @@ def make_cohort_row(
 
 
 def store_pairwise_geometry_batch(rows: List[Dict[str, Any]], weighted: bool = False):
-    """Store batch of pairwise geometry metrics to Parquet (both weighted and unweighted)."""
+    """Store batch of pairwise geometry metrics to geometry.parquet."""
     if not rows:
         return
 
     df = pl.DataFrame(rows, infer_schema_length=None)
 
-    # Always write both versions
-    df_unweighted = df.drop('window_weight') if 'window_weight' in df.columns else df
-    upsert_parquet(df_unweighted, get_parquet_path('geometry', 'signal_pair'), GEOMETRY_PAIRS_KEY_COLS)
-    upsert_parquet(df, get_parquet_path('geometry', 'signal_pair_weighted'), GEOMETRY_PAIRS_KEY_COLS)
+    # All geometry goes to geometry.parquet
+    upsert_parquet(df, get_path(GEOMETRY), GEOMETRY_PAIRS_KEY_COLS)
 
     logger.info(f"Wrote {len(rows)} pairwise geometry rows")
 
@@ -1140,9 +1147,9 @@ def load_laplace_fields_v2(
     Returns:
         Dict mapping signal_id to LaplaceField
     """
-    field_path = get_parquet_path('vector', 'laplace_field_v2')
+    field_path = get_path(SIGNALS)
     if not field_path.exists():
-        logger.warning(f"No V2 Laplace fields at {field_path}. Run laplace.py --v2 first.")
+        logger.warning(f"No signals found at {field_path}. Run signal_vector first.")
         return {}
 
     # Load field data
@@ -1290,15 +1297,16 @@ def run_v2_geometry(
     if verbose:
         logger.info(f"  Saving {len(rows)} geometry snapshot rows...")
 
-    # Save to parquet
+    # Save to geometry.parquet
     df = pl.DataFrame(rows, infer_schema_length=None)
-    geom_path = get_parquet_path('geometry', 'snapshots_v2')
+    geom_path = get_path(GEOMETRY)
     upsert_parquet(df, geom_path, ['timestamp'])
 
     if verbose:
         logger.info(f"  Saved: {geom_path}")
 
     # Also save coupling matrices (detailed) if not too large
+    # Coupling goes to geometry.parquet as well
     if len(snapshots) <= 1000:
         coupling_rows = []
         for snap in snapshots:
@@ -1316,11 +1324,10 @@ def run_v2_geometry(
 
         if coupling_rows:
             coupling_df = pl.DataFrame(coupling_rows, infer_schema_length=None)
-            coupling_path = get_parquet_path('geometry', 'coupling_v2')
-            upsert_parquet(coupling_df, coupling_path, ['timestamp', 'signal_a', 'signal_b'])
+            upsert_parquet(coupling_df, geom_path, ['timestamp', 'signal_a', 'signal_b'])
 
             if verbose:
-                logger.info(f"  Saved coupling: {coupling_path} ({len(coupling_rows):,} pairs)")
+                logger.info(f"  Saved coupling: {geom_path} ({len(coupling_rows):,} pairs)")
 
     stats['saved_rows'] = len(rows)
     return stats

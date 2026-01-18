@@ -34,7 +34,15 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import polars as pl
 
-from prism.db.parquet_store import get_parquet_path
+from prism.db.parquet_store import (
+    get_path,
+    get_data_root,
+    OBSERVATIONS,
+    SIGNALS,
+    GEOMETRY,
+    STATE,
+    COHORTS,
+)
 from prism.db.polars_io import upsert_parquet
 
 logger = logging.getLogger(__name__)
@@ -93,7 +101,19 @@ class IncrementalWriter:
         self.use_schedule = use_schedule
         self.verbose = verbose
 
-        self.target_path = get_parquet_path(schema, table)
+        # Map schema to file constant
+        FILE_MAP = {
+            'raw': OBSERVATIONS,
+            'observations': OBSERVATIONS,
+            'vector': SIGNALS,
+            'signals': SIGNALS,
+            'geometry': GEOMETRY,
+            'state': STATE,
+            'config': COHORTS,
+            'cohorts': COHORTS,
+        }
+        file_const = FILE_MAP.get(schema, SIGNALS)
+        self.target_path = get_path(file_const)
         self.buffer: List[Dict[str, Any]] = []
         self.items_in_batch: List[Tuple[str, str]] = []  # (item_id, tier) pairs
         self.stats = WriterStats()
@@ -106,7 +126,7 @@ class IncrementalWriter:
     def _load_computed_keys(self):
         """Load already-computed items from schedule or existing data."""
         try:
-            schedule_path = get_parquet_path("config", "window_schedule")
+            schedule_path = get_data_root() / "window_schedule.parquet"
             if schedule_path.exists():
                 schedule = pl.read_parquet(schedule_path)
                 computed = schedule.filter(pl.col("status") == "computed")

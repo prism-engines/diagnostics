@@ -48,7 +48,7 @@ from typing import Optional, List, Dict, Tuple
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 
-from prism.db.parquet_store import get_parquet_path, ensure_directories
+from prism.db.parquet_store import get_path, get_data_root, ensure_directory, OBSERVATIONS, SIGNALS, GEOMETRY
 from prism.db.polars_io import write_parquet_atomic, upsert_parquet
 from prism.utils.stride import load_stride_config
 
@@ -93,7 +93,7 @@ def load_domain_info() -> Optional[Dict]:
         return None
 
     try:
-        domain_info_path = get_parquet_path("config", "domain_info").with_suffix('.json')
+        domain_info_path = get_data_root(domain) / "domain_info.json"
         if domain_info_path.exists():
             with open(domain_info_path) as f:
                 return json.load(f)
@@ -524,7 +524,7 @@ def compute_running_laplace_fields(
         s_values = np.array([0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0])
 
     # Load raw observations
-    obs_path = get_parquet_path('raw', 'observations')
+    obs_path = get_path(OBSERVATIONS)
     if not obs_path.exists():
         raise FileNotFoundError(f"No observations at {obs_path}")
 
@@ -715,7 +715,7 @@ def run_v2_laplace(
 
     # Save to parquet
     df = pl.DataFrame(rows, infer_schema_length=None)
-    field_path = get_parquet_path('vector', 'laplace_field_v2')
+    field_path = get_path(SIGNALS)
     upsert_parquet(df, field_path, ['signal_id', 'timestamp', 's_idx'])
 
     if verbose:
@@ -743,7 +743,7 @@ def run_v2_laplace(
 
         if derived_rows:
             derived_df = pl.DataFrame(derived_rows, infer_schema_length=None)
-            derived_path = get_parquet_path('vector', 'laplace_derived_v2')
+            derived_path = get_path(SIGNALS)
             upsert_parquet(derived_df, derived_path, ['signal_id', 'timestamp', 'engine', 'metric_name'])
 
             if verbose:
@@ -862,7 +862,7 @@ Same hammer, different nails:
     os.environ["PRISM_DOMAIN"] = domain
     print(f"Domain: {domain}", flush=True)
 
-    ensure_directories()
+    ensure_directory()
 
     # V2 Architecture: Running Laplace transform
     if args.v2:
@@ -892,20 +892,15 @@ Same hammer, different nails:
         if args.input:
             input_path = Path(args.input)
         else:
-            input_path = get_parquet_path('vector', 'signal', domain=domain)
+            input_path = get_path(SIGNALS)
 
-        # Output path depends on value column (raw vs normalized)
-        if args.output:
-            output_path = Path(args.output)
-        elif args.value_col == 'metric_value_norm':
-            output_path = get_parquet_path('vector', 'signal_field_norm', domain=domain)
-        else:
-            output_path = get_parquet_path('vector', 'signal_field', domain=domain)
+        # Output path: laplace field goes to signals.parquet
+        output_path = Path(args.output) if args.output else get_path(SIGNALS)
         entity_col = args.entity_col or 'signal_id'
 
     elif args.level == 'geometry':
-        input_path = Path(args.input) if args.input else get_parquet_path('geometry', 'cohort', domain=domain)
-        output_path = Path(args.output) if args.output else get_parquet_path('vector', 'geometry_field', domain=domain)
+        input_path = Path(args.input) if args.input else get_path(GEOMETRY)
+        output_path = Path(args.output) if args.output else get_path(SIGNALS)
         entity_col = args.entity_col or 'cohort_id'
 
     if not args.quiet:

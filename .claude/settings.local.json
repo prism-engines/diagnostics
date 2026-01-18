@@ -223,7 +223,11 @@
       "Bash(for dir in modules signals geometry state engines entry_points)",
       "Bash(do echo \"=== $dir/ ===\" ls /Users/jasonrudder/prism-mac/prism/$dir/*.py)",
       "Bash(for dir in db config utils testing cohorts assessments derivations domains fetchers)",
-      "Bash(__NEW_LINE_c29515de1749783f__ echo \"\")"
+      "Bash(__NEW_LINE_c29515de1749783f__ echo \"\")",
+      "Bash(PYTHONPATH=/Users/jasonrudder/prism-mac:$PYTHONPATH python:*)",
+      "Bash(PYTHONPATH=/Users/jasonrudder/prism-mac pytest:*)",
+      "Bash(/Users/jasonrudder/prism-mac/venv/bin/pytest:*)",
+      "Bash(uv --version:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

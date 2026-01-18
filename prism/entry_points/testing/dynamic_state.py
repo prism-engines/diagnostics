@@ -33,7 +33,16 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 
-from prism.db.parquet_store import get_parquet_path, ensure_directories
+from prism.db.parquet_store import (
+    get_path,
+    get_data_root,
+    ensure_directory,
+    OBSERVATIONS,
+    SIGNALS,
+    GEOMETRY,
+    STATE,
+    COHORTS,
+)
 from prism.db.polars_io import write_parquet_atomic
 from prism.utils.memory import force_gc, get_memory_usage_mb
 
@@ -253,15 +262,15 @@ def run_dynamic_state(
     Returns:
         DataFrame with system state metrics per window
     """
-    ensure_directories()
+    ensure_directory()
 
     # Default paths
     if signal_field_path is None:
-        signal_field_path = get_parquet_path('vector', 'signal_field')
+        signal_field_path = get_path(SIGNALS)
     if geometry_field_path is None:
-        geometry_field_path = get_parquet_path('geometry', 'geometry_field')
+        geometry_field_path = get_path(GEOMETRY)
     if output_path is None:
-        output_path = get_parquet_path('state', 'system')
+        output_path = get_path(STATE)
 
     if verbose:
         print("=" * 70)
@@ -450,7 +459,7 @@ Examples:
         print("\n" + "=" * 70)
         print("DYNAMIC STATE COMPLETE")
         print("=" * 70)
-        print(f"Output: {output_path or get_parquet_path('state', 'system')}")
+        print(f"Output: {output_path or get_path(STATE)}")
         print(f"Rows: {len(state_df):,}")
 
 

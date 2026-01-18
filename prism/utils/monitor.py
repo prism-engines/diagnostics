@@ -19,7 +19,15 @@ from typing import Optional
 
 import polars as pl
 
-from prism.db.parquet_store import get_parquet_path
+from prism.db.parquet_store import (
+    get_path,
+    get_data_root,
+    OBSERVATIONS,
+    SIGNALS,
+    GEOMETRY,
+    STATE,
+    COHORTS,
+)
 
 
 def get_file_stats(path: Path) -> dict:
@@ -39,7 +47,7 @@ def get_file_stats(path: Path) -> dict:
 
 def get_progress_stats(schema: str, table: str) -> dict:
     """Get progress tracker statistics."""
-    progress_path = get_parquet_path("config", f"progress_{schema}_{table}")
+    progress_path = get_data_root() / f"progress_{schema}_{table}.parquet"
     if not progress_path.exists():
         return {"completed": 0, "in_progress": 0, "failed": 0}
 
@@ -61,23 +69,27 @@ def monitor_once() -> dict:
     """Get current status of all PRISM data files."""
     results = {}
 
-    # Vector signals
-    vec_path = get_parquet_path("vector", "signals")
-    vec_stats = get_file_stats(vec_path)
-    vec_progress = get_progress_stats("vector", "signals")
-    results["vector.signals"] = {**vec_stats, **vec_progress}
+    # Signals
+    signals_path = get_path(SIGNALS)
+    signals_stats = get_file_stats(signals_path)
+    signals_progress = get_progress_stats("vector", "signals")
+    results["signals"] = {**signals_stats, **signals_progress}
 
-    # Geometry cohorts
-    geo_cohorts_path = get_parquet_path("geometry", "cohorts")
-    results["geometry.cohorts"] = get_file_stats(geo_cohorts_path)
+    # Geometry
+    geometry_path = get_path(GEOMETRY)
+    results["geometry"] = get_file_stats(geometry_path)
 
-    # Geometry pairs
-    geo_pairs_path = get_parquet_path("geometry", "pairs")
-    results["geometry.pairs"] = get_file_stats(geo_pairs_path)
+    # State
+    state_path = get_path(STATE)
+    results["state"] = get_file_stats(state_path)
 
-    # State cohorts
-    state_cohorts_path = get_parquet_path("state", "cohorts")
-    results["state.cohorts"] = get_file_stats(state_cohorts_path)
+    # Cohorts
+    cohorts_path = get_path(COHORTS)
+    results["cohorts"] = get_file_stats(cohorts_path)
+
+    # Observations
+    obs_path = get_path(OBSERVATIONS)
+    results["observations"] = get_file_stats(obs_path)
 
     return results
 

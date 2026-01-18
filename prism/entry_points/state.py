@@ -52,9 +52,18 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 import warnings
 
-from prism.db.parquet_store import ensure_directories, get_parquet_path
+from prism.db.parquet_store import (
+    ensure_directory,
+    get_path,
+    get_data_root,
+    OBSERVATIONS,
+    SIGNALS,
+    GEOMETRY,
+    STATE,
+    COHORTS,
+)
 from prism.db.polars_io import read_parquet, upsert_parquet
-from prism.db.scratch import TempParquet, merge_to_table
+from prism.db.scratch import TempParquet, merge_temp_results
 from prism.engines.utils.parallel import (
     WorkerAssignment,
     divide_by_count,
@@ -107,7 +116,7 @@ def load_domain_info() -> Optional[Dict[str, Any]]:
     domain = os.environ.get('PRISM_DOMAIN')
     if not domain:
         return None
-    domain_info_path = get_parquet_path("config", "domain_info").with_suffix('.json')
+    domain_info_path = get_data_root(domain) / "domain_info.json"
     if domain_info_path.exists():
         try:
             with open(domain_info_path) as f:
@@ -178,11 +187,11 @@ TRANSFERS_KEY_COLS = ['state_time', 'cohort_from', 'cohort_to']
 
 def get_available_dates() -> List[date]:
     """Get all dates with geometry data from parquet files."""
-    structure_path = get_parquet_path('geometry', 'structure')
-    if not structure_path.exists():
+    geometry_path = get_path(GEOMETRY)
+    if not geometry_path.exists():
         return []
 
-    df = pl.read_parquet(structure_path, columns=['window_end'])
+    df = pl.read_parquet(geometry_path, columns=['window_end'])
     if len(df) == 0:
         return []
 
@@ -203,13 +212,13 @@ def get_geometry_history(
     if lookback is None:
         lookback = get_lookback_window()
 
-    structure_path = get_parquet_path('geometry', 'structure')
-    if not structure_path.exists():
+    geometry_path = get_path(GEOMETRY)
+    if not geometry_path.exists():
         return pl.DataFrame()
 
     start_date = end_date - timedelta(days=lookback * 2)  # Buffer for sparse data
 
-    df = pl.read_parquet(structure_path)
+    df = pl.read_parquet(geometry_path)
     df = df.filter(
         (pl.col('window_end') >= start_date) &
         (pl.col('window_end') <= end_date)
@@ -240,13 +249,13 @@ def get_displacement_history(
     if lookback is None:
         lookback = get_lookback_window()
 
-    displacement_path = get_parquet_path('geometry', 'displacement')
-    if not displacement_path.exists():
+    geometry_path = get_path(GEOMETRY)
+    if not geometry_path.exists():
         return pl.DataFrame()
 
     start_date = end_date - timedelta(days=lookback * 2)
 
-    df = pl.read_parquet(displacement_path)
+    df = pl.read_parquet(geometry_path)
     df = df.filter(
         (pl.col('window_end_to') >= start_date) &
         (pl.col('window_end_to') <= end_date)
@@ -271,7 +280,7 @@ def get_signal_geometry(window_end: date) -> pl.DataFrame:
     """
     Fetch geometry.signals for a specific date.
     """
-    signals_path = get_parquet_path('geometry', 'signals')
+    signals_path = get_path(SIGNALS)
     if not signals_path.exists():
         return pl.DataFrame()
 
@@ -288,7 +297,7 @@ def get_signal_geometry(window_end: date) -> pl.DataFrame:
 
 def get_cohort_membership() -> Dict[str, List[str]]:
     """Get cohort membership mapping from parquet."""
-    members_path = get_parquet_path('config', 'cohort_members')
+    members_path = get_path(COHORTS)
     if not members_path.exists():
         return {}
 
@@ -496,11 +505,11 @@ def compute_cross_cohort_transfers(
     start_date = state_date - timedelta(days=lookback * 2)
 
     # Get displacement data
-    displacement_path = get_parquet_path('geometry', 'displacement')
-    if not displacement_path.exists():
+    geometry_path = get_path(GEOMETRY)
+    if not geometry_path.exists():
         return []
 
-    disp_df = pl.read_parquet(displacement_path)
+    disp_df = pl.read_parquet(geometry_path)
     disp_df = disp_df.filter(
         (pl.col('window_end_to') >= start_date) &
         (pl.col('window_end_to') <= state_date)
@@ -614,7 +623,7 @@ def run_state_range(
     if stride is None:
         stride = get_default_stride()
 
-    ensure_directories()
+    ensure_directory()
 
     # Get available dates
     available_dates = get_available_dates()
@@ -681,27 +690,27 @@ def run_state_range(
         if (i + 1) % 50 == 0:
             if system_rows:
                 df = pl.DataFrame(system_rows)
-                upsert_parquet(df, get_parquet_path('state', 'system'), SYSTEM_KEY_COLS)
+                upsert_parquet(df, get_path(STATE), SYSTEM_KEY_COLS)
                 system_rows = []
             if signal_rows:
                 df = pl.DataFrame(signal_rows)
-                upsert_parquet(df, get_parquet_path('state', 'signal_dynamics'), INDICATOR_DYNAMICS_KEY_COLS)
+                upsert_parquet(df, get_path(STATE), INDICATOR_DYNAMICS_KEY_COLS)
                 signal_rows = []
             if transfer_rows:
                 df = pl.DataFrame(transfer_rows)
-                upsert_parquet(df, get_parquet_path('state', 'transfers'), TRANSFERS_KEY_COLS)
+                upsert_parquet(df, get_path(STATE), TRANSFERS_KEY_COLS)
                 transfer_rows = []
 
     # Final write
     if system_rows:
         df = pl.DataFrame(system_rows)
-        upsert_parquet(df, get_parquet_path('state', 'system'), SYSTEM_KEY_COLS)
+        upsert_parquet(df, get_path(STATE), SYSTEM_KEY_COLS)
     if signal_rows:
         df = pl.DataFrame(signal_rows)
-        upsert_parquet(df, get_parquet_path('state', 'signal_dynamics'), INDICATOR_DYNAMICS_KEY_COLS)
+        upsert_parquet(df, get_path(STATE), INDICATOR_DYNAMICS_KEY_COLS)
     if transfer_rows:
         df = pl.DataFrame(transfer_rows)
-        upsert_parquet(df, get_parquet_path('state', 'transfers'), TRANSFERS_KEY_COLS)
+        upsert_parquet(df, get_path(STATE), TRANSFERS_KEY_COLS)
 
     if verbose:
         logger.info("")
@@ -825,7 +834,7 @@ def merge_state_results(temp_paths: List[Path], verbose: bool = True) -> Dict[st
         table_df = combined.filter(pl.col('_table') == table_name).drop('_table')
 
         if len(table_df) > 0:
-            target_path = get_parquet_path('state', table_name)
+            target_path = get_path(STATE)
             upsert_parquet(table_df, target_path, key_cols)
             totals[table_name] = len(table_df)
 
@@ -854,7 +863,7 @@ def load_geometry_snapshots_v2() -> List[GeometrySnapshot]:
     Returns:
         List of GeometrySnapshot objects sorted by timestamp
     """
-    geom_path = get_parquet_path('geometry', 'snapshots_v2')
+    geom_path = get_path(GEOMETRY)
     if not geom_path.exists():
         logger.warning(f"No V2 geometry snapshots at {geom_path}. Run geometry --v2 first.")
         return []
@@ -862,7 +871,7 @@ def load_geometry_snapshots_v2() -> List[GeometrySnapshot]:
     df = pl.read_parquet(geom_path).sort('timestamp')
 
     # Also load coupling matrices if available
-    coupling_path = get_parquet_path('geometry', 'coupling_v2')
+    coupling_path = get_path(GEOMETRY)
     coupling_by_timestamp = {}
     if coupling_path.exists():
         coupling_df = pl.read_parquet(coupling_path)
@@ -1022,7 +1031,7 @@ def run_v2_state(
 
     # Save trajectory to parquet
     df = pl.DataFrame(rows, infer_schema_length=None)
-    state_path = get_parquet_path('state', 'trajectory_v2')
+    state_path = get_path(STATE)
     upsert_parquet(df, state_path, ['timestamp'])
 
     if verbose:
@@ -1036,7 +1045,7 @@ def run_v2_state(
             event_rows.append(event)
 
         events_df = pl.DataFrame(event_rows, infer_schema_length=None)
-        events_path = get_parquet_path('state', 'events_v2')
+        events_path = get_path(STATE)
         upsert_parquet(events_df, events_path, ['peak_idx'])
 
         if verbose:
@@ -1051,7 +1060,7 @@ def run_v2_state(
         'computed_at': computed_at,
     }
     summary_df = pl.DataFrame([summary], infer_schema_length=None)
-    summary_path = get_parquet_path('state', 'summary_v2')
+    summary_path = get_path(STATE)
     summary_df.write_parquet(summary_path)
 
     if verbose:
@@ -1114,7 +1123,7 @@ Storage: Parquet files (no database locks)
 
     # V2 Architecture: State trajectory from geometry snapshots
     if args.v2:
-        ensure_directories()
+        ensure_directory()
         result = run_v2_state(verbose=not args.quiet)
         logger.info("")
         logger.info("=" * 80)
@@ -1160,7 +1169,7 @@ Storage: Parquet files (no database locks)
         from datetime import datetime as dt
         snapshot_date = dt.strptime(args.snapshot, '%Y-%m-%d').date()
 
-        ensure_directories()
+        ensure_directory()
         results = run_state_snapshot(snapshot_date, verbose=not args.quiet)
 
         # Write single snapshot results
@@ -1168,19 +1177,19 @@ Storage: Parquet files (no database locks)
         if results['system']:
             results['system']['computed_at'] = computed_at
             df = pl.DataFrame([results['system']])
-            upsert_parquet(df, get_parquet_path('state', 'system'), SYSTEM_KEY_COLS)
+            upsert_parquet(df, get_path(STATE), SYSTEM_KEY_COLS)
 
         if results['signals']:
             for ind in results['signals']:
                 ind['computed_at'] = computed_at
             df = pl.DataFrame(results['signals'])
-            upsert_parquet(df, get_parquet_path('state', 'signal_dynamics'), INDICATOR_DYNAMICS_KEY_COLS)
+            upsert_parquet(df, get_path(STATE), INDICATOR_DYNAMICS_KEY_COLS)
 
         if results['transfers']:
             for tr in results['transfers']:
                 tr['computed_at'] = computed_at
             df = pl.DataFrame(results['transfers'])
-            upsert_parquet(df, get_parquet_path('state', 'transfers'), TRANSFERS_KEY_COLS)
+            upsert_parquet(df, get_path(STATE), TRANSFERS_KEY_COLS)
 
         return 0
 
@@ -1194,7 +1203,7 @@ Storage: Parquet files (no database locks)
 
     # Run with or without parallelization
     if args.workers > 1:
-        ensure_directories()
+        ensure_directory()
         logger.info(f"Parallel mode: {args.workers} workers")
 
         available_dates = get_available_dates()

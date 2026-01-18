@@ -1,151 +1,79 @@
 """
 PRISM Parquet Storage Layer
+===========================
 
-Path management and directory structure for Parquet-based storage.
-Domain-first organization with consistent analysis subfolders.
+5 files. No more, no less.
 
-Directory Structure (domain-first):
+Directory Structure:
     data/
-      {domain}/                   # e.g., cmapss/, climate/, cheme/
-        raw/
-          observations.parquet
-          signals.parquet
-        config/
-          cohort_members.parquet
-          cohorts.parquet
-          windows.parquet
-        filter/
-          pairs.parquet
-          redundant.parquet
-        vector/
-          signal.parquet       # individual signal metrics
-          cohort.parquet          # aggregated cohort metrics
-        geometry/
-          signal_pair.parquet  # pairwise between signals
-          cohort.parquet          # cohort-level structure
-          cohort_pair.parquet     # pairwise between cohorts (future)
-        state/
-          signal_pair.parquet  # temporal relationships
-          cohort.parquet          # cohort temporal dynamics
-          cohort_pair.parquet     # cohort pairwise dynamics (future)
-        characterization/
-          signal.parquet       # 6-axis classification per signal
-          cohort.parquet          # 6-axis classification per cohort
+      {domain}/                     # e.g., cmapss/, tep/, femto/
+        observations.parquet        # Raw sensor data
+        signals.parquet             # All behavioral signals (dense + sparse)
+        geometry.parquet            # System structure at each timestamp
+        state.parquet               # Dynamics at each timestamp
+        cohorts.parquet             # Discovered entity groupings
 
-      cross_domain/               # cross-domain comparisons (future)
-        geometry/
-          domain_pair.parquet
+Entity Hierarchy:
+    domain (cmapss)
+    └── entity (engine_47)          # Fails, gets RUL, joins cohort
+        └── signal (sensor_1)       # Measures entity
+            └── derived (inst_freq) # Computed from signal
 
-Naming Convention:
-    - Top folder = domain (cmapss, climate, cheme, etc.)
-    - Second folder = analysis type (vector, geometry, state, characterization)
-    - Filename = scope (signal, cohort) + _pair suffix for pairwise
+File Schemas:
+    observations: entity_id, signal_id, timestamp, value
+    signals:      entity_id, signal_id, source_signal, engine, signal_type, timestamp, value, mode_id
+    geometry:     entity_id, timestamp, divergence, mode_count, coupling_mean, transition_flag, regime, ...
+    state:        entity_id, timestamp, position_*, velocity_*, acceleration_*, failure_signature, ...
+    cohorts:      entity_id, cohort_id, trajectory_similarity, failure_mode, ...
 
 Usage:
-    # Domain defaults to active domain
-    get_parquet_path('vector', 'signal')  # -> data/{domain}/vector/signal.parquet
+    from prism.db.parquet_store import get_path, OBSERVATIONS, SIGNALS, GEOMETRY, STATE, COHORTS
+
+    # Get path to a file
+    obs_path = get_path(OBSERVATIONS)  # -> data/{domain}/observations.parquet
 
     # Explicit domain
-    get_parquet_path('vector', 'signal', domain='cmapss')  # -> data/cmapss/vector/signal.parquet
+    obs_path = get_path(OBSERVATIONS, domain='cmapss')
 """
 
 import os
 from pathlib import Path
 from typing import List, Optional
 
-import yaml
+# =============================================================================
+# THE 5 FILES
+# =============================================================================
 
-# Schema definitions (folders under data/)
-SCHEMAS = [
-    "raw",
-    "config",
-    "filter",
-    "vector",
-    "geometry",
-    "state",
-    "characterization",
-    "physics",
-    "delta",      # Delta pipeline: break detection
-    "event",      # Event geometry: density/regime analysis
-]
+OBSERVATIONS = "observations"   # Raw sensor data
+SIGNALS = "signals"             # All behavioral signals
+GEOMETRY = "geometry"           # System structure at each t
+STATE = "state"                 # Dynamics at each t
+COHORTS = "cohorts"             # Discovered entity groupings
 
-# Table definitions per schema
-# Naming: {scope}.parquet or {scope}_pair.parquet for pairwise
-SCHEMA_TABLES = {
-    "raw": ["observations", "signals", "domain_config"],
-    "config": ["cohort_members", "cohorts", "windows", "engine_min_obs"],
-    "filter": ["pairs", "redundant", "curated"],
-    "vector": ["signal", "cohort", "domain"],
-    "geometry": ["signal_pair", "cohort", "cohort_pair", "domain"],
-    "state": ["signal_pair", "cohort", "cohort_pair", "domain"],
-    "characterization": ["signal", "cohort", "domain"],
-    "physics": ["signal", "cohort", "conservation"],
-    "delta": ["breaks", "timing", "geometry", "pairwise"],  # Delta pipeline
-    "event": ["density", "regimes", "sync"],            # Event geometry
-}
+# All valid file names
+FILES = [OBSERVATIONS, SIGNALS, GEOMETRY, STATE, COHORTS]
+
 
 # =============================================================================
-# FILE PATH CONSTANTS - Import these in runners for consistency
+# PATH FUNCTIONS
 # =============================================================================
-# Usage: from prism.db.parquet_store import VECTOR_INDICATOR, GEOMETRY_COHORT
-#        path = get_parquet_path(*VECTOR_INDICATOR)
-
-# Vector paths (intrinsic properties)
-VECTOR_INDICATOR = ("vector", "signal")
-VECTOR_COHORT = ("vector", "cohort")
-VECTOR_DOMAIN = ("vector", "domain")
-
-# Geometry paths (structural relationships)
-GEOMETRY_INDICATOR_PAIR = ("geometry", "signal_pair")
-GEOMETRY_COHORT = ("geometry", "cohort")
-GEOMETRY_COHORT_PAIR = ("geometry", "cohort_pair")
-GEOMETRY_DOMAIN = ("geometry", "domain")
-
-# State paths (temporal dynamics)
-STATE_INDICATOR_PAIR = ("state", "signal_pair")
-STATE_COHORT = ("state", "cohort")
-STATE_COHORT_PAIR = ("state", "cohort_pair")
-STATE_DOMAIN = ("state", "domain")
-
-# Characterization paths (6-axis classification)
-CHAR_INDICATOR = ("characterization", "signal")
-CHAR_COHORT = ("characterization", "cohort")
-CHAR_DOMAIN = ("characterization", "domain")
-
-# Config paths
-CONFIG_COHORT_MEMBERS = ("config", "cohort_members")
-CONFIG_COHORTS = ("config", "cohorts")
-CONFIG_WINDOWS = ("config", "windows")
-
-# Delta pipeline paths (break detection)
-DELTA_BREAKS = ("delta", "breaks")
-DELTA_TIMING = ("delta", "timing")
-
-# Event geometry paths (density/regime analysis)
-EVENT_DENSITY = ("event", "density")
-EVENT_REGIMES = ("event", "regimes")
-EVENT_SYNC = ("event", "sync")
-
 
 def get_active_domain() -> str:
     """
     Get the active domain from PRISM_DOMAIN environment variable.
 
     Returns:
-        Active domain name (e.g., 'cheme', 'cmapss', 'climate')
+        Active domain name (e.g., 'cmapss', 'tep', 'femto')
 
     Raises:
-        RuntimeError: If no domain is set (PRISM_DOMAIN env var required)
+        RuntimeError: If no domain is set
     """
-    # Check environment variable - REQUIRED
     env_domain = os.environ.get("PRISM_DOMAIN")
     if env_domain:
         return env_domain
 
-    # No fallback - domain must be explicitly set
     raise RuntimeError(
-        "No domain specified. Set PRISM_DOMAIN environment variable or use --domain flag. "
-        "Available domains can be listed with: python -m prism.db.parquet_store --list-domains"
+        "No domain specified. Set PRISM_DOMAIN environment variable or use --domain flag."
     )
 
 
@@ -154,292 +82,181 @@ def get_data_root(domain: str = None) -> Path:
     Return the root data directory for a domain.
 
     Args:
-        domain: Domain name (cmapss, climate, etc.). Defaults to active domain from config.
+        domain: Domain name. Defaults to active domain.
 
     Returns:
         Path to domain data directory (e.g., data/cmapss/)
-
-    Examples:
-        get_data_root()           -> ~/prism-mac/data/cmapss/  (if cmapss is active)
-        get_data_root('climate')  -> ~/prism-mac/data/climate/
     """
-    # Base path from env var or default
     env_path = os.environ.get("PRISM_DATA_PATH")
     if env_path:
         base = Path(env_path)
     else:
         base = Path(os.path.expanduser("~/prism-mac/data"))
 
-    # Always use domain-first structure
     domain = domain or get_active_domain()
     return base / domain
 
 
-def get_schema_path(schema: str, domain: str = None) -> Path:
+def get_path(file: str, domain: str = None) -> Path:
     """
-    Return the directory path for a schema within a domain.
+    Return the path to a PRISM output file.
 
     Args:
-        schema: Schema name (raw, vector, geometry, state, etc.)
+        file: File name (OBSERVATIONS, SIGNALS, GEOMETRY, STATE, COHORTS)
         domain: Domain name. Defaults to active domain.
 
     Returns:
-        Path to schema directory (e.g., data/cmapss/vector/)
-    """
-    if schema not in SCHEMAS:
-        raise ValueError(f"Unknown schema: {schema}. Valid schemas: {SCHEMAS}")
-    return get_data_root(domain) / schema
-
-
-def get_parquet_path(schema: str, table: str, domain: str = None) -> Path:
-    """
-    Return the parquet file path for a table.
-
-    Args:
-        schema: Schema name (raw, vector, geometry, state, etc.)
-        table: Table name (signal, cohort, signal_pair, etc.)
-        domain: Domain name. Defaults to active domain.
-
-    Returns:
-        Path to parquet file (e.g., data/cmapss/vector/signal.parquet)
+        Path to parquet file
 
     Examples:
-        >>> get_parquet_path('vector', 'signal')
-        PosixPath('.../data/cmapss/vector/signal.parquet')
+        >>> get_path(OBSERVATIONS)
+        PosixPath('.../data/cmapss/observations.parquet')
 
-        >>> get_parquet_path('vector', 'signal', domain='g7')
-        PosixPath('.../data/g7/vector/signal.parquet')
+        >>> get_path(SIGNALS, domain='tep')
+        PosixPath('.../data/tep/signals.parquet')
     """
-    return get_schema_path(schema, domain) / f"{table}.parquet"
+    if file not in FILES:
+        raise ValueError(f"Unknown file: {file}. Valid files: {FILES}")
+
+    return get_data_root(domain) / f"{file}.parquet"
 
 
-def ensure_directories(domain: str = None) -> None:
+def ensure_directory(domain: str = None) -> Path:
     """
-    Create all schema directories if they don't exist.
+    Create domain directory if it doesn't exist.
 
     Args:
-        domain: Optional domain name (oceania, g7, etc.)
+        domain: Domain name. Defaults to active domain.
 
-    Creates:
-        data/{domain}/raw/
-        data/{domain}/config/
-        data/{domain}/filter/
-        data/{domain}/vector/
-        data/{domain}/geometry/
-        data/{domain}/state/
-        data/{domain}/cohort/
+    Returns:
+        Path to domain directory
     """
     root = get_data_root(domain)
     root.mkdir(parents=True, exist_ok=True)
-
-    for schema in SCHEMAS:
-        schema_path = root / schema
-        schema_path.mkdir(parents=True, exist_ok=True)
+    return root
 
 
-def list_schemas(domain: str = None) -> List[str]:
-    """
-    List all schema directories that exist.
-
-    Args:
-        domain: Optional domain name
-
-    Returns:
-        List of schema names that have directories
-    """
-    root = get_data_root(domain)
-    if not root.exists():
-        return []
-
-    return [d.name for d in root.iterdir() if d.is_dir() and d.name in SCHEMAS]
+def file_exists(file: str, domain: str = None) -> bool:
+    """Check if a PRISM output file exists."""
+    return get_path(file, domain).exists()
 
 
-def list_domains() -> List[str]:
-    """
-    List all domain directories under PRISM_DATA_PATH.
-
-    Returns:
-        List of domain names that have directories
-    """
-    data_root = get_data_root()
-    if not data_root.exists():
-        return []
-
-    # Filter to only directories that look like domains (have schema subdirs)
-    domains = []
-    for d in data_root.iterdir():
-        if d.is_dir() and (d / "raw").exists():
-            domains.append(d.name)
-    return sorted(domains)
+def get_file_size(file: str, domain: str = None) -> Optional[int]:
+    """Get file size in bytes, or None if doesn't exist."""
+    path = get_path(file, domain)
+    if path.exists():
+        return path.stat().st_size
+    return None
 
 
-def list_tables(schema: str, domain: str = None) -> List[str]:
-    """
-    List all parquet tables in a schema.
-
-    Args:
-        schema: Schema name
-        domain: Optional domain name
-
-    Returns:
-        List of table names (without .parquet extension)
-    """
-    schema_path = get_schema_path(schema, domain)
-    if not schema_path.exists():
-        return []
-
-    return [
-        f.stem for f in schema_path.iterdir() if f.is_file() and f.suffix == ".parquet"
-    ]
-
-
-def table_exists(schema: str, table: str, domain: str = None) -> bool:
-    """
-    Check if a parquet table exists.
-
-    Args:
-        schema: Schema name
-        table: Table name
-        domain: Optional domain name
-
-    Returns:
-        True if the parquet file exists
-    """
-    return get_parquet_path(schema, table, domain).exists()
-
-
-def get_table_size(schema: str, table: str, domain: str = None) -> Optional[int]:
-    """
-    Get the size of a parquet file in bytes.
-
-    Args:
-        schema: Schema name
-        table: Table name
-        domain: Optional domain name
-
-    Returns:
-        File size in bytes, or None if file doesn't exist
-    """
-    path = get_parquet_path(schema, table, domain)
-    if not path.exists():
-        return None
-    return path.stat().st_size
-
-
-def delete_table(schema: str, table: str, domain: str = None) -> bool:
-    """
-    Delete a parquet table.
-
-    Args:
-        schema: Schema name
-        table: Table name
-        domain: Optional domain name
-
-    Returns:
-        True if file was deleted, False if it didn't exist
-    """
-    path = get_parquet_path(schema, table, domain)
+def delete_file(file: str, domain: str = None) -> bool:
+    """Delete a file. Returns True if deleted, False if didn't exist."""
+    path = get_path(file, domain)
     if path.exists():
         path.unlink()
         return True
     return False
 
 
-def get_all_parquet_paths(domain: str = None) -> List[Path]:
-    """
-    Get paths to all existing parquet files.
+def list_files(domain: str = None) -> List[str]:
+    """List all existing PRISM output files for a domain."""
+    return [f for f in FILES if file_exists(f, domain)]
 
-    Args:
-        domain: Optional domain name
+
+def list_domains() -> List[str]:
+    """List all domain directories."""
+    env_path = os.environ.get("PRISM_DATA_PATH")
+    if env_path:
+        base = Path(env_path)
+    else:
+        base = Path(os.path.expanduser("~/prism-mac/data"))
+
+    if not base.exists():
+        return []
+
+    # A domain has at least one of the 5 files
+    domains = []
+    for d in base.iterdir():
+        if d.is_dir():
+            for f in FILES:
+                if (d / f"{f}.parquet").exists():
+                    domains.append(d.name)
+                    break
+    return sorted(domains)
+
+
+def get_status(domain: str = None) -> dict:
+    """
+    Get status of all PRISM output files.
 
     Returns:
-        List of paths to all parquet files across all schemas
+        Dict with file status and sizes
     """
-    paths = []
-    for schema in list_schemas(domain):
-        schema_path = get_schema_path(schema, domain)
-        paths.extend(schema_path.glob("*.parquet"))
-    return sorted(paths)
+    status = {}
+    for f in FILES:
+        path = get_path(f, domain)
+        if path.exists():
+            size = path.stat().st_size
+            status[f] = {"exists": True, "size_bytes": size, "size_mb": size / 1024 / 1024}
+        else:
+            status[f] = {"exists": False, "size_bytes": 0, "size_mb": 0}
+    return status
 
 
-def validate_schema_structure(domain: str = None) -> dict:
-    """
-    Validate that the expected schema structure exists.
+# =============================================================================
+# CLI
+# =============================================================================
 
-    Args:
-        domain: Optional domain name
-
-    Returns:
-        Dict with 'valid' bool and 'missing' list of missing tables
-    """
-    missing = []
-    for schema, tables in SCHEMA_TABLES.items():
-        for table in tables:
-            if not table_exists(schema, table, domain):
-                missing.append(f"{schema}.{table}")
-
-    return {"valid": len(missing) == 0, "missing": missing}
-
-
-# CLI support
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="PRISM Parquet Storage Management")
-    parser.add_argument("--domain", help="Domain name (cmapss, climate, cheme, etc.)")
-    parser.add_argument("--init", action="store_true", help="Initialize directory structure")
-    parser.add_argument("--list", action="store_true", help="List all tables")
+    parser = argparse.ArgumentParser(description="PRISM Storage - 5 Files")
+    parser.add_argument("--domain", help="Domain name (cmapss, tep, femto, etc.)")
+    parser.add_argument("--init", action="store_true", help="Create domain directory")
+    parser.add_argument("--list", action="store_true", help="List files for domain")
     parser.add_argument("--list-domains", action="store_true", help="List all domains")
-    parser.add_argument("--validate", action="store_true", help="Validate schema structure")
-    parser.add_argument("--stats", action="store_true", help="Show storage statistics")
+    parser.add_argument("--status", action="store_true", help="Show file status")
 
     args = parser.parse_args()
 
+    if args.domain:
+        os.environ["PRISM_DOMAIN"] = args.domain
+
     if args.init:
-        ensure_directories(args.domain)
-        root = get_data_root(args.domain)
-        print(f"Initialized directories at {root}")
+        path = ensure_directory(args.domain)
+        print(f"Created: {path}")
+        print("\nExpected files:")
+        for f in FILES:
+            print(f"  {f}.parquet")
 
     elif args.list_domains:
         domains = list_domains()
         if domains:
             print("Domains:")
-            for d in sorted(domains):
+            for d in domains:
                 print(f"  {d}/")
         else:
-            print("No domains found in ./data/")
+            print("No domains found")
 
     elif args.list:
-        domain = args.domain
-        if domain:
-            print(f"Domain: {domain}")
-        for schema in list_schemas(domain):
-            tables = list_tables(schema, domain)
-            if tables:
-                print(f"{schema}/")
-                for table in tables:
-                    size = get_table_size(schema, table, domain)
-                    size_str = f"{size:,} bytes" if size else "?"
-                    print(f"  {table}.parquet ({size_str})")
-
-    elif args.validate:
-        result = validate_schema_structure(args.domain)
-        if result["valid"]:
-            print("Schema structure is valid")
+        files = list_files(args.domain)
+        if files:
+            print(f"Files in {args.domain or 'active domain'}:")
+            for f in files:
+                size = get_file_size(f, args.domain)
+                print(f"  {f}.parquet ({size:,} bytes)")
         else:
-            print("Missing tables:")
-            for missing in result["missing"]:
-                print(f"  - {missing}")
+            print("No files found")
 
-    elif args.stats:
-        total_size = 0
-        total_files = 0
-        for path in get_all_parquet_paths(args.domain):
-            total_size += path.stat().st_size
-            total_files += 1
-        print(f"Data root: {get_data_root(args.domain)}")
-        print(f"Total files: {total_files}")
-        print(f"Total size: {total_size:,} bytes ({total_size / 1024 / 1024:.2f} MB)")
+    elif args.status:
+        status = get_status(args.domain)
+        print(f"Status for {args.domain or 'active domain'}:")
+        print("-" * 50)
+        for f, info in status.items():
+            if info["exists"]:
+                print(f"  ✓ {f}.parquet ({info['size_mb']:.2f} MB)")
+            else:
+                print(f"  ✗ {f}.parquet (missing)")
 
     else:
         parser.print_help()

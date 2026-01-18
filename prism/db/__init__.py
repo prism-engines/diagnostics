@@ -1,38 +1,47 @@
 """
 PRISM Database Layer
+====================
 
-Parquet-based storage with Polars I/O.
+5-file Parquet storage with Polars I/O.
 
-Modules:
-    parquet_store: Path management and directory structure
-    polars_io: Atomic writes, upsert operations
-    query: Table introspection utilities
-    scratch: Temporary storage for parallel workers
+Files:
+    observations.parquet  - Raw sensor data
+    signals.parquet       - Behavioral signals (dense + sparse)
+    geometry.parquet      - System structure at each timestamp
+    state.parquet         - Dynamics at each timestamp
+    cohorts.parquet       - Discovered entity groupings
 
 Usage:
-    from prism.db import get_parquet_path, read_table, write_table
+    from prism.db import get_path, OBSERVATIONS, SIGNALS, GEOMETRY, STATE, COHORTS
 
-    # Read/write tables
-    observations = read_table('raw', 'observations')
-    write_table(results, 'vector', 'signals', mode='upsert', key_cols=[...])
+    # Get path to a file
+    obs_path = get_path(OBSERVATIONS)
 
-    # Query with Polars
+    # Read with Polars
     import polars as pl
-    obs = pl.read_parquet(get_parquet_path('raw', 'observations'))
-    spy_data = obs.filter(pl.col('signal_id') == 'SENSOR_01')
+    obs = pl.read_parquet(get_path(OBSERVATIONS))
 """
 
 # Path management
 from prism.db.parquet_store import (
+    # Core functions
     get_data_root,
-    get_parquet_path,
-    get_schema_path,
-    ensure_directories,
-    list_schemas,
-    list_tables,
-    table_exists,
-    SCHEMAS,
-    SCHEMA_TABLES,
+    get_path,
+    ensure_directory,
+    file_exists,
+    get_file_size,
+    delete_file,
+    list_files,
+    list_domains,
+    get_status,
+    get_active_domain,
+    # File constants
+    OBSERVATIONS,
+    SIGNALS,
+    GEOMETRY,
+    STATE,
+    COHORTS,
+    FILES,
 )
 
 # Polars I/O
@@ -41,8 +50,8 @@ from prism.db.polars_io import (
     write_parquet_atomic,
     upsert_parquet,
     append_parquet,
-    read_table,
-    write_table,
+    read_file,
+    write_file,
     get_row_count,
     get_parquet_schema,
 )
@@ -62,23 +71,31 @@ from prism.db.scratch import (
 )
 
 __all__ = [
-    # parquet_store
+    # Core path functions
     "get_data_root",
-    "get_parquet_path",
-    "get_schema_path",
-    "ensure_directories",
-    "list_schemas",
-    "list_tables",
-    "table_exists",
-    "SCHEMAS",
-    "SCHEMA_TABLES",
+    "get_path",
+    "ensure_directory",
+    "file_exists",
+    "get_file_size",
+    "delete_file",
+    "list_files",
+    "list_domains",
+    "get_status",
+    "get_active_domain",
+    # File constants
+    "OBSERVATIONS",
+    "SIGNALS",
+    "GEOMETRY",
+    "STATE",
+    "COHORTS",
+    "FILES",
     # polars_io
     "read_parquet",
     "write_parquet_atomic",
     "upsert_parquet",
     "append_parquet",
-    "read_table",
-    "write_table",
+    "read_file",
+    "write_file",
     "get_row_count",
     "get_parquet_schema",
     # query

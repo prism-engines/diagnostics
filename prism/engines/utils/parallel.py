@@ -45,7 +45,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import polars as pl
 
-from prism.db.parquet_store import ensure_directories, get_parquet_path, list_tables
+from prism.db.parquet_store import ensure_directory, get_path, OBSERVATIONS, SIGNALS, GEOMETRY, STATE, COHORTS
 from prism.db.polars_io import read_parquet, upsert_parquet, write_parquet_atomic
 from prism.db.scratch import TempParquet, merge_temp_results
 
@@ -150,8 +150,8 @@ def divide_by_date_range(
 
 
 def get_cohorts_from_parquet() -> List[str]:
-    """Get list of cohorts from config parquet."""
-    cohorts_path = get_parquet_path("config", "cohorts")
+    """Get list of cohorts from cohorts.parquet."""
+    cohorts_path = get_path(COHORTS)
     if not cohorts_path.exists():
         return []
 
@@ -163,15 +163,15 @@ def get_cohorts_from_parquet() -> List[str]:
 
 def get_signals_from_parquet(cohort: Optional[str] = None) -> List[str]:
     """Get signal IDs from parquet files."""
-    obs_path = get_parquet_path("raw", "observations")
+    obs_path = get_path(OBSERVATIONS)
     if not obs_path.exists():
         return []
 
     if cohort:
-        # Filter by cohort membership
-        members_path = get_parquet_path("config", "cohort_members")
-        if members_path.exists():
-            members = pl.read_parquet(members_path)
+        # Filter by cohort membership from cohorts.parquet
+        cohorts_path = get_path(COHORTS)
+        if cohorts_path.exists():
+            members = pl.read_parquet(cohorts_path)
             signal_ids = (
                 members.filter(pl.col("cohort_id") == cohort)["signal_id"]
                 .unique()
@@ -270,8 +270,7 @@ class ParquetOrchestrator(ABC):
     Base class for all PRISM orchestrators using Parquet storage.
 
     Subclasses must define:
-        - schema: str (e.g., 'vector', 'geometry', 'state')
-        - table: str (e.g., 'signals', 'cohorts')
+        - file: str (OBSERVATIONS, SIGNALS, GEOMETRY, STATE, or COHORTS)
         - key_cols: List[str] (columns for upsert deduplication)
         - get_work_items(): Get items to process
         - worker_task(): Process a single assignment
@@ -280,8 +279,7 @@ class ParquetOrchestrator(ABC):
     merged to the main parquet file using upsert semantics.
     """
 
-    schema: str = None
-    table: str = None
+    file: str = None  # File constant (SIGNALS, GEOMETRY, etc.)
     key_cols: List[str] = []
 
     def __init__(
@@ -297,7 +295,7 @@ class ParquetOrchestrator(ABC):
 
         # Ensure data directories exist
         if not dry_run:
-            ensure_directories()
+            ensure_directory()
 
     @abstractmethod
     def get_work_items(self) -> List[Any]:
@@ -360,12 +358,12 @@ class ParquetOrchestrator(ABC):
             return 0
 
         # Merge to main parquet
-        target_path = get_parquet_path(self.schema, self.table)
+        target_path = get_path(self.file)
         total_rows = merge_temp_results(
             temp_paths, target_path, key_cols=self.key_cols if self.key_cols else None
         )
 
-        logger.info(f"Merged {total_rows:,} rows to {self.schema}.{self.table}")
+        logger.info(f"Merged {total_rows:,} rows to {self.file}")
         return total_rows
 
     def cleanup(self):
@@ -506,14 +504,13 @@ def parse_date(s: str) -> date:
 
 
 def get_available_snapshots(
-    schema: str = "vector",
-    table: str = "signals",
+    file: str = SIGNALS,
     start: Optional[date] = None,
     end: Optional[date] = None,
-    date_col: str = "window_end",
+    date_col: str = "timestamp",
 ) -> List[date]:
-    """Get available snapshot dates from a parquet table."""
-    path = get_parquet_path(schema, table)
+    """Get available snapshot dates from a parquet file."""
+    path = get_path(file)
     if not path.exists():
         return []
 
