@@ -186,7 +186,7 @@ def convert_to_prism_format(df: pl.DataFrame, output_dir: Path):
 
     # Group by fuel and create indicators
     # Each fuel/pressure/phi combination becomes an indicator
-    # The "time series" is ignition delay vs temperature (sorted by 1/T)
+    # The "signal topology" is ignition delay vs temperature (sorted by 1/T)
 
     obs_rows = []
     ind_rows = []

@@ -200,8 +200,8 @@ def compute_mutual_information_with_derivation(
     Compute mutual information with full mathematical derivation.
 
     Args:
-        x: First time series
-        y: Second time series
+        x: First signal topology
+        y: Second signal topology
         indicator_x: Name of X indicator
         indicator_y: Name of Y indicator
         window_id: Window identifier

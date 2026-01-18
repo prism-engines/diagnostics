@@ -1,7 +1,7 @@
 """
 PRISM Entropy Engine
 
-Measures complexity and predictability of time series.
+Measures complexity and predictability of signal topology.
 
 Measures:
 - Permutation entropy (complexity)
@@ -175,11 +175,11 @@ def compute_sample_entropy_with_derivation(
     if np.isnan(samp_ent):
         interp = "Sample entropy undefined (no matches found)."
     elif samp_ent < 0.5:
-        interp = f"SampEn = {samp_ent:.4f} < 0.5 indicates **highly regular** dynamics. The time series is highly predictable."
+        interp = f"SampEn = {samp_ent:.4f} < 0.5 indicates **highly regular** dynamics. The signal topology is highly predictable."
     elif samp_ent < 1.5:
         interp = f"SampEn = {samp_ent:.4f} indicates **moderate complexity**. Some predictability exists."
     else:
-        interp = f"SampEn = {samp_ent:.4f} > 1.5 indicates **high complexity/randomness**. The time series is unpredictable."
+        interp = f"SampEn = {samp_ent:.4f} > 1.5 indicates **high complexity/randomness**. The signal topology is unpredictable."
 
     deriv.interpretation = interp
 

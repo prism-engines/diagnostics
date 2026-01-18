@@ -265,7 +265,7 @@ Generated data location: `data/chemical_kinetics/`
 ```
 data/chemical_kinetics/
 ├── raw/
-│   ├── observations.parquet      # Concentration time series
+│   ├── observations.parquet      # Concentration signal topology
 │   ├── indicators.parquet        # Indicator metadata
 │   └── trajectory_summary.parquet # Ground truth parameters
 ├── config/

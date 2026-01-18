@@ -76,8 +76,8 @@ def compute_pairwise_geometry(
         - cointegration: Long-run equilibrium test
 
     Args:
-        series_a: Time series for indicator A
-        series_b: Time series for indicator B
+        series_a: Signal for indicator A
+        series_b: Signal for indicator B
         pair_name: Name for this pair (e.g., "HR_BP")
 
     Returns:

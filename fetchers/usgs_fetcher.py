@@ -5,7 +5,7 @@ USGS Earthquake Fetcher
 Standalone fetcher for USGS earthquake data.
 Does NOT import from prism - this is a workspace script.
 
-Converts earthquake catalogs into daily time series for geometric analysis.
+Converts earthquake catalogs into daily signal topology for geometric analysis.
 
 INDICATORS GENERATED per region:
     - {REGION}_COUNT     : Daily earthquake count
@@ -223,7 +223,7 @@ def aggregate_to_daily(
     start_date: date,
     end_date: date,
 ) -> pd.DataFrame:
-    """Aggregate earthquake events to daily time series."""
+    """Aggregate earthquake events to daily signal topology."""
     if earthquakes.empty:
         dates = pd.date_range(start_date, end_date, freq="D")
         if indicator_type == "COUNT":

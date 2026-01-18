@@ -2,7 +2,7 @@
 Chemical Kinetics Simulator for PRISM Validation
 =================================================
 
-Generates concentration time series with known rate equations to test:
+Generates concentration signal topology with known rate equations to test:
 - Can PRISM recover rate behavior from concentration dynamics?
 - Do PRISM metrics correlate with rate constants?
 - Can PRISM detect reaction order?

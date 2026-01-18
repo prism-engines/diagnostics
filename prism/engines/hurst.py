@@ -1,7 +1,7 @@
 """
 PRISM Hurst Exponent Engine
 
-Measures long-term memory and persistence in time series.
+Measures long-term memory and persistence in signal topology.
 
 Measures:
 - Hurst exponent (H)
@@ -44,7 +44,7 @@ METADATA = EngineMetadata(
     name="hurst",
     engine_type="vector",
     description="Hurst exponent for long-term memory and persistence",
-    domains={"time_series", "persistence"},
+    domains={"signal_topology", "persistence"},
     requires_window=True,
     deterministic=True,
 )

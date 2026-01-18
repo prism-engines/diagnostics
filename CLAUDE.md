@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-PRISM Diagnostics is a behavioral geometry engine for industrial time-series analysis. It measures intrinsic properties, relational structure, and temporal dynamics of sensor data from turbofans, bearings, hydraulic systems, and chemical plants. **The math interprets; we don't add narrative.**
+PRISM Diagnostics is a behavioral geometry engine for industrial signal topology analysis. It measures intrinsic properties, relational structure, and temporal dynamics of sensor data from turbofans, bearings, hydraulic systems, and chemical plants. **The math interprets; we don't add narrative.**
 
 **Repository:** `prism-engines/diagnostics`
 
@@ -118,7 +118,7 @@ python -m prism.utils.monitor
 
 ```
 Layer 0: OBSERVATIONS
-         Raw sensor data → time series
+         Raw sensor data → signal topology
          Output: data/raw/observations.parquet
 
 Layer 1: INDICATOR VECTOR

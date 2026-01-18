@@ -74,7 +74,7 @@ def compute_trajectory_features(values: np.ndarray, engines: Dict = None) -> Dic
     Compute PRISM features on a full trajectory.
 
     Args:
-        values: Time series values (full trajectory)
+        values: Signal values (full trajectory)
         engines: Dict of engines to run (default: CORE_ENGINES)
 
     Returns:

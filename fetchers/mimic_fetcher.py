@@ -250,7 +250,7 @@ def create_prism_observations(
     Create PRISM-format observations from MIMIC vitals.
 
     Each ICU stay becomes multiple indicators (one per vital sign).
-    Time series are segmented into windows for regime analysis.
+    Signal are segmented into windows for regime analysis.
 
     Args:
         vitals: DataFrame with vital measurements

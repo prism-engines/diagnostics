@@ -45,18 +45,18 @@ METADATA = EngineMetadata(
     name="rqa",
     engine_type="vector",
     description="Recurrence quantification analysis for dynamics",
-    domains={"time_series", "dynamics"},
+    domains={"signal_topology", "dynamics"},
     requires_window=True,
     deterministic=True,
 )
 
 
-def _embed_time_series(x: np.ndarray, dim: int, tau: int) -> np.ndarray:
+def _embed_signal_topology(x: np.ndarray, dim: int, tau: int) -> np.ndarray:
     """
-    Time-delay embedding of a time series.
+    Time-delay embedding of a signal topology.
 
     Args:
-        x: Input time series
+        x: Input signal topology
         dim: Embedding dimension
         tau: Time delay
 
@@ -217,8 +217,8 @@ def compute_rqa(values: np.ndarray, embedding_dim: int = 3, time_delay: int = 1,
         if np.std(values) < 1e-10:
             return null_result
 
-        # Embed time series
-        embedded = _embed_time_series(values, embedding_dim, time_delay)
+        # Embed signal topology
+        embedded = _embed_signal_topology(values, embedding_dim, time_delay)
 
         if embedded.shape[0] < 10:
             return null_result
@@ -303,11 +303,11 @@ def compute_rqa_with_derivation(
         calculation=f"n = {n}\nRange: [{np.min(values):.4f}, {np.max(values):.4f}]\nMean: {np.mean(values):.4f}\nStd: {np.std(values):.4f}",
         result=n,
         result_name="n",
-        notes="Time series to be analyzed for recurrence patterns"
+        notes="Signal to be analyzed for recurrence patterns"
     )
 
     # Step 2: Time-delay embedding
-    embedded = _embed_time_series(values, embedding_dim, time_delay)
+    embedded = _embed_signal_topology(values, embedding_dim, time_delay)
     n_vectors = embedded.shape[0]
 
     deriv.add_step(
@@ -316,7 +316,7 @@ def compute_rqa_with_derivation(
         calculation=f"Embedding dimension m = {embedding_dim}\nTime delay τ = {time_delay}\nNumber of embedded vectors: {n_vectors}\n\nFirst 3 embedded vectors:\nX⃗₀ = {embedded[0].tolist()}\nX⃗₁ = {embedded[1].tolist()}\nX⃗₂ = {embedded[2].tolist()}",
         result=n_vectors,
         result_name="N_embedded",
-        notes="Takens' embedding theorem: reconstruct attractor from scalar time series"
+        notes="Takens' embedding theorem: reconstruct attractor from scalar signal topology"
     )
 
     # Step 3: Distance matrix
@@ -583,8 +583,8 @@ class RQAEngine(BaseEngine):
         for indicator in indicators:
             x = df_clean[indicator].values
 
-            # Embed time series
-            embedded = _embed_time_series(x, embedding_dim, time_delay)
+            # Embed signal topology
+            embedded = _embed_signal_topology(x, embedding_dim, time_delay)
 
             if embedded.shape[0] < 10:
                 logger.warning(f"Insufficient data for RQA on {indicator}")

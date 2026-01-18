@@ -93,7 +93,7 @@ METADATA = EngineMetadata(
     name="spectral",
     engine_type="vector",
     description="FFT-based spectral features: shape, slope, bands, entropy",
-    domains={"time_series", "frequency"},
+    domains={"signal_topology", "frequency"},
     requires_window=True,
     deterministic=True,
 )
@@ -366,7 +366,7 @@ Where:
         calculation=f"n = {n}\nRange: [{values.min():.4f}, {values.max():.4f}]\nMean: {values.mean():.4f}\nStd: {values.std():.4f}",
         result=n,
         result_name="n",
-        notes="Input time series for spectral analysis"
+        notes="Input signal topology for spectral analysis"
     )
 
     # Step 2: Detrend
@@ -471,7 +471,7 @@ class SpectralEngine(BaseEngine):
     """
     Spectral Density engine for cycle detection.
 
-    Identifies dominant periodic patterns in time series.
+    Identifies dominant periodic patterns in signal topology.
 
     Outputs:
         - results.geometry_fingerprints: Spectral characteristics

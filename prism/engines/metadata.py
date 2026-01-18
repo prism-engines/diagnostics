@@ -20,7 +20,7 @@ class EngineMetadata:
         name: Engine identifier (matches engine class name pattern)
         engine_type: 'vector' (single series) or 'geometry' (multi-series)
         description: Brief description of what the engine computes
-        domains: Set of applicable domain tags (e.g., 'time_series', 'correlation')
+        domains: Set of applicable domain tags (e.g., 'signal_topology', 'correlation')
         requires_window: Whether the engine needs a time window to operate
         deterministic: Whether outputs are reproducible given same inputs
     """

@@ -28,10 +28,10 @@ from typing import Dict, Optional
 
 def compute_hilbert(values: np.ndarray, min_obs: int = 20) -> Dict[str, Optional[float]]:
     """
-    Compute Hilbert transform metrics for a time series.
+    Compute Hilbert transform metrics for a signal topology.
 
     Args:
-        values: 1D array of time series values
+        values: 1D array of signal topology values
         min_obs: Minimum observations required
 
     Returns:

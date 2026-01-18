@@ -147,7 +147,7 @@ PRISM successfully distinguishes Michaelis-Menten kinetic regimes:
 | Linear vs saturating | **PASS** | SampEn 1.48 vs 0.37 |
 | Physical interpretation | **PASS** | Entropy correlates with kinetic order |
 
-**Key Insight:** Sample entropy captures the transition from first-order (linear) to zero-order (saturating) kinetics, even from velocity time series alone.
+**Key Insight:** Sample entropy captures the transition from first-order (linear) to zero-order (saturating) kinetics, even from velocity signal topology alone.
 
 ---
 
@@ -190,7 +190,7 @@ PRISM successfully distinguishes Michaelis-Menten kinetic regimes:
 ```
 data/sabiork/
 ├── raw/
-│   ├── observations.parquet   # Velocity time series
+│   ├── observations.parquet   # Velocity signal topology
 │   └── indicators.parquet     # Enzyme metadata
 ├── config/
 │   ├── cohorts.parquet

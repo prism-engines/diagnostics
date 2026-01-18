@@ -16,7 +16,7 @@ This analysis examines the divergence field topology of 17 hydraulic system indi
 
 ## Methodology
 
-The analysis computes divergence metrics across sliding windows of the hydraulic time series:
+The analysis computes divergence metrics across sliding windows of the hydraulic signal topology:
 - **Total Divergence:** Cumulative divergence over all observations
 - **Mean Divergence:** Average divergence per observation
 - **Accelerating/Decelerating Windows:** Count of windows with positive/negative divergence rates

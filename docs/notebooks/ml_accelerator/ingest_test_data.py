@@ -72,7 +72,7 @@ def ingest_test_data():
     test_missing = test_df.filter(pl.col('unit').is_in(missing))
     print(f"\nRows for missing units: {len(test_missing)}")
 
-    # Base date for synthetic time series
+    # Base date for synthetic signal topology
     base_date = date(2000, 1, 1)
 
     # Convert to PRISM observation format

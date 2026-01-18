@@ -24,7 +24,7 @@ python -m prism.assessments.run --domain cheme
 
 ### Step 1: Indicator Vector (`indicator_vector`)
 
-**What it computes:** 51 behavioral metrics for each indicator (time series)
+**What it computes:** 51 behavioral metrics for each indicator (signal topology)
 
 **Key metrics:**
 | Category | Metrics | What They Measure |
@@ -306,7 +306,7 @@ python -m prism.assessments.run --domain femto
 ```
 data/{domain}/
 ├── raw/
-│   └── observations.parquet      # Input time series
+│   └── observations.parquet      # Input signal topology
 ├── vector/
 │   ├── indicator.parquet         # 51 metrics per indicator
 │   ├── indicator_field.parquet   # Laplace geometric field

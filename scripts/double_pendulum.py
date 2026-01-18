@@ -2,7 +2,7 @@
 Double Pendulum Simulator for PRISM Validation
 ===============================================
 
-Generates time series at multiple energy levels to test:
+Generates signal topology at multiple energy levels to test:
 - Chaos transition detection (Lyapunov crosses zero)
 - Energy conservation (field potential vs true energy)
 - Regime detection at chaos onset
@@ -105,7 +105,7 @@ def generate_trajectory(initial_angle_deg, n_steps=10000, dt=0.01):
         dt: Time step
 
     Returns:
-        dict with time series and energy
+        dict with signal topology and energy
     """
     # Convert to radians
     theta0 = np.radians(initial_angle_deg)

@@ -6,7 +6,7 @@ Inline Laplace field computation. Called by indicator_vector
 to compute field vectors from engine metrics.
 
 This module provides the core Laplace computations that can be
-applied to any time series of metrics.
+applied to any signal topology of metrics.
 
 Mathematical Foundation:
 ------------------------

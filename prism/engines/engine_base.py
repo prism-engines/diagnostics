@@ -26,11 +26,11 @@ def get_window_dates(df: pd.DataFrame) -> Tuple[date, date]:
     """
     Safely extract window start/end dates from a DataFrame.
 
-    For time series data (DatetimeIndex): returns min/max dates
+    For signal topology data (DatetimeIndex): returns min/max dates
     For behavioral vectors (string index): returns today's date for both
 
     This allows geometry engines to work with both:
-    - Traditional time series (rows=dates, cols=indicators)
+    - Traditional signal topology (rows=dates, cols=indicators)
     - Behavioral vectors (rows=indicators, cols=dimensions)
     """
     today = date.today()

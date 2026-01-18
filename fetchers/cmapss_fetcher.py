@@ -248,7 +248,7 @@ def fetch(config: Dict[str, Any]) -> List[Dict[str, Any]]:
             unit_id = int(row['unit'])
             cycle = int(row['cycle'])
 
-            # Create a synthetic date for time series
+            # Create a synthetic date for signal topology
             # Different units start at different dates to distinguish them
             obs_date = base_date + timedelta(days=(unit_id - 1) * 500 + cycle)
 

@@ -10,7 +10,7 @@ Tension/dispersion represents the disagreement between timescales:
 - Rising dispersion = growing uncertainty, potential regime change
 - Falling dispersion = convergence, stabilization
 
-Input: geometry.structure time series (total_dispersion, mean_alignment)
+Input: geometry.structure signal topology (total_dispersion, mean_alignment)
 Output: Tension dynamics metrics
 
 Key Metrics:

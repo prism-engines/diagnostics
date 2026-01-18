@@ -168,12 +168,12 @@ Lightweight ML
 
 ```python
 # Without PRISM
-X = raw_timeseries  # 10,000 dims
+X = raw_signal topology  # 10,000 dims
 y = labels          # Need thousands of labeled failures
 model = LSTM()      # Massive, slow, black box
 
 # With PRISM
-X = prism.extract_features(raw_timeseries)  # 51 dims
+X = prism.extract_features(raw_signal topology)  # 51 dims
 y = prism.auto_label(events, modes)         # Generated
 model = XGBoost()   # Fast, interpretable, transferable
 ```
@@ -217,13 +217,13 @@ Nobody else has the geometry layer that makes XGBoost work on 100 samples instea
 | Model | Revenue | Market |
 |-------|---------|--------|
 | **PRISM Diagnostics** | $50-200K/plant | Industrial maintenance |
-| **PRISM Accelerator** | Per-seat SaaS / API calls | Every ML team doing time series |
+| **PRISM Accelerator** | Per-seat SaaS / API calls | Every ML team doing signal topology |
 
 ### Platform API Vision
 
 ```
 POST prism.ai/api/v1/extract
-Body: raw time series
+Body: raw signal topology
 
 Response: {
   features: [...],      # ML-ready

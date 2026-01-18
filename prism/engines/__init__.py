@@ -5,7 +5,7 @@ Unified engine registry for all PRISM analysis engines.
 Engines are callable tools that can be invoked by an orchestrator.
 
 Engine Categories:
-- Vector: Single-indicator time series analysis (entropy, hurst, garch, etc.)
+- Vector: Single-indicator signal topology analysis (entropy, hurst, garch, etc.)
 - Geometry: Multi-indicator relational structure (pca, clustering, distance, etc.)
 - State: Temporal dynamics and causality (granger, cointegration, dtw, etc.)
 

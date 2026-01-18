@@ -1,7 +1,7 @@
 """
 PRISM DTW (Dynamic Time Warping) Engine
 
-Measures shape similarity between time series.
+Measures shape similarity between signal topology.
 
 Measures:
 - DTW distance matrix
@@ -57,7 +57,7 @@ def _dtw_distance_numba(x: np.ndarray, y: np.ndarray, window: int) -> float:
     Numba-JIT compiled DTW distance computation.
 
     Uses dynamic programming with Sakoe-Chiba band constraint.
-    50-200x faster than pure Python for typical time series lengths.
+    50-200x faster than pure Python for typical signal topology lengths.
     """
     n, m = len(x), len(y)
 
@@ -101,7 +101,7 @@ class DTWEngine(BaseEngine):
     """
     Dynamic Time Warping engine.
 
-    Measures shape similarity between time series, allowing for
+    Measures shape similarity between signal topology, allowing for
     temporal warping/alignment.
 
     Outputs:
@@ -217,8 +217,8 @@ def compute_dtw_with_derivation(
     Compute DTW distance with full mathematical derivation.
 
     Args:
-        x: First time series
-        y: Second time series
+        x: First signal topology
+        y: Second signal topology
         indicator_x: Name of X indicator
         indicator_y: Name of Y indicator
         window_id: Window identifier
@@ -245,7 +245,7 @@ def compute_dtw_with_derivation(
 
     # Step 1: Input data
     deriv.add_step(
-        title="Input Time Series",
+        title="Input Signal Topology",
         equation="x ∈ ℝⁿ, y ∈ ℝᵐ",
         calculation=f"Series {indicator_x}:\n"
                     f"  length n = {n}\n"

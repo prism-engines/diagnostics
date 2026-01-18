@@ -35,7 +35,7 @@ METADATA = EngineMetadata(
     name="wavelet",
     engine_type="vector",
     description="Time-frequency decomposition via wavelet transform",
-    domains={"time_series", "frequency"},
+    domains={"signal_topology", "frequency"},
     requires_window=True,
     deterministic=True,
 )
@@ -365,7 +365,7 @@ def compute_wavelets_with_derivation(
         calculation=f"n = {n}\nRange: [{np.min(values):.4f}, {np.max(values):.4f}]\nMean: {np.mean(values):.4f}\nStd: {np.std(values):.4f}",
         result=n,
         result_name="n",
-        notes="Time series for time-frequency analysis"
+        notes="Signal for time-frequency analysis"
     )
 
     # Step 2: Auto-select wavelet

@@ -56,7 +56,7 @@ def compute_wavelet_decomposition(
     Decompose signal into frequency bands using wavelets.
 
     Args:
-        signal: 1D time series
+        signal: 1D signal topology
         wavelet: Wavelet family (default: Daubechies 4)
         max_level: Maximum decomposition level (default: auto)
 
@@ -133,7 +133,7 @@ def compute_band_snr_evolution(
     Track SNR evolution per frequency band over time.
 
     Args:
-        observations: Time series data with 'indicator_id', 'obs_date', 'value'
+        observations: Signal data with 'indicator_id', 'obs_date', 'value'
         indicator_id: Indicator to analyze
         window_size: Rolling window size
         step_size: Step between windows

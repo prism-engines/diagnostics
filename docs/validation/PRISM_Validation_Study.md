@@ -8,9 +8,9 @@
 
 ## Abstract
 
-We present a systematic validation of PRISM (Persistent Relational Inference & Structural Measurement) behavioral geometry metrics against physical and chemical systems with analytically known dynamics. Three validation studies were conducted: (1) chaos detection in the double pendulum, (2) reaction order discrimination in chemical kinetics, and (3) Arrhenius relationship detection in real combustion data. Results demonstrate that PRISM metrics correctly identify chaos transitions (Sample Entropy +75%, p < 0.01), distinguish reaction mechanisms (Hurst 0.53 vs 0.95, t = -831, p < 0.001), and correlate with data quality in experimental measurements (r = +0.54 for Hurst vs Arrhenius R²). These findings establish PRISM as a valid tool for characterizing intrinsic dynamical properties of time series data.
+We present a systematic validation of PRISM (Persistent Relational Inference & Structural Measurement) behavioral geometry metrics against physical and chemical systems with analytically known dynamics. Three validation studies were conducted: (1) chaos detection in the double pendulum, (2) reaction order discrimination in chemical kinetics, and (3) Arrhenius relationship detection in real combustion data. Results demonstrate that PRISM metrics correctly identify chaos transitions (Sample Entropy +75%, p < 0.01), distinguish reaction mechanisms (Hurst 0.53 vs 0.95, t = -831, p < 0.001), and correlate with data quality in experimental measurements (r = +0.54 for Hurst vs Arrhenius R²). These findings establish PRISM as a valid tool for characterizing intrinsic dynamical properties of signal topology data.
 
-**Keywords:** nonlinear dynamics, chaos detection, chemical kinetics, reaction-diffusion, time series analysis, behavioral geometry, Lyapunov exponent, entropy, Hurst exponent
+**Keywords:** nonlinear dynamics, chaos detection, chemical kinetics, reaction-diffusion, signal topology analysis, behavioral geometry, Lyapunov exponent, entropy, Hurst exponent
 
 ---
 
@@ -18,11 +18,11 @@ We present a systematic validation of PRISM (Persistent Relational Inference & S
 
 ### 1.1 Background
 
-Time series analysis traditionally relies on statistical measures that assume linearity and stationarity. However, many real-world systems exhibit nonlinear dynamics, chaos, and regime changes that violate these assumptions. PRISM addresses this gap by computing a "behavioral fingerprint" of 51 metrics that characterize the intrinsic geometric and dynamical properties of time series.
+Signal analysis traditionally relies on statistical measures that assume linearity and stationarity. However, many real-world systems exhibit nonlinear dynamics, chaos, and regime changes that violate these assumptions. PRISM addresses this gap by computing a "behavioral fingerprint" of 51 metrics that characterize the intrinsic geometric and dynamical properties of signal topology.
 
 ### 1.2 The Validation Problem
 
-A fundamental challenge in developing time series analysis tools is validation: how do we know the computed metrics are meaningful? We address this through comparison with systems where the ground truth is known analytically:
+A fundamental challenge in developing signal topology analysis tools is validation: how do we know the computed metrics are meaningful? We address this through comparison with systems where the ground truth is known analytically:
 
 1. **Double Pendulum**: Exhibits transition from regular to chaotic motion at known energy thresholds
 2. **Chemical Kinetics**: Follows well-characterized rate laws (first-order, second-order, oscillating)
@@ -31,7 +31,7 @@ A fundamental challenge in developing time series analysis tools is validation: 
 ### 1.3 Research Questions
 
 1. Can PRISM detect the chaos transition in a double pendulum?
-2. Can PRISM distinguish different reaction orders from concentration time series?
+2. Can PRISM distinguish different reaction orders from concentration signal topology?
 3. Do PRISM metrics correlate with Arrhenius fit quality in real experimental data?
 
 ### 1.4 Contributions
@@ -422,7 +422,7 @@ This study establishes empirical validity for PRISM behavioral geometry metrics 
 
 **Implications:**
 
-PRISM provides a validated framework for characterizing time series dynamics beyond traditional statistical measures. The metrics capture fundamental properties—chaos, persistence, complexity—that are invariant to scaling and robust to noise. This enables rigorous comparison of dynamical behavior across diverse domains.
+PRISM provides a validated framework for characterizing signal topology dynamics beyond traditional statistical measures. The metrics capture fundamental properties—chaos, persistence, complexity—that are invariant to scaling and robust to noise. This enables rigorous comparison of dynamical behavior across diverse domains.
 
 ---
 
@@ -466,15 +466,15 @@ python scripts/validate_chemked.py
 
 ### Lyapunov Exponent Estimation
 
-5. Wolf, A., Swift, J. B., Swinney, H. L., & Vastano, J. A. (1985). Determining Lyapunov exponents from a time series. *Physica D*, 16(3), 285-317. https://doi.org/10.1016/0167-2789(85)90011-9
+5. Wolf, A., Swift, J. B., Swinney, H. L., & Vastano, J. A. (1985). Determining Lyapunov exponents from a signal topology. *Physica D*, 16(3), 285-317. https://doi.org/10.1016/0167-2789(85)90011-9
 
 6. Rosenstein, M. T., Collins, J. J., & De Luca, C. J. (1993). A practical method for calculating largest Lyapunov exponents from small data sets. *Physica D*, 65(1-2), 117-134. https://doi.org/10.1016/0167-2789(93)90009-P
 
 ### Entropy Measures
 
-7. Richman, J. S., & Moorman, J. R. (2000). Physiological time-series analysis using approximate entropy and sample entropy. *American Journal of Physiology-Heart and Circulatory Physiology*, 278(6), H2039-H2049. https://doi.org/10.1152/ajpheart.2000.278.6.H2039
+7. Richman, J. S., & Moorman, J. R. (2000). Physiological signal topology analysis using approximate entropy and sample entropy. *American Journal of Physiology-Heart and Circulatory Physiology*, 278(6), H2039-H2049. https://doi.org/10.1152/ajpheart.2000.278.6.H2039
 
-8. Bandt, C., & Pompe, B. (2002). Permutation entropy: A natural complexity measure for time series. *Physical Review Letters*, 88(17), 174102. https://doi.org/10.1103/PhysRevLett.88.174102
+8. Bandt, C., & Pompe, B. (2002). Permutation entropy: A natural complexity measure for signal topology. *Physical Review Letters*, 88(17), 174102. https://doi.org/10.1103/PhysRevLett.88.174102
 
 ### Hurst Exponent
 
@@ -500,7 +500,7 @@ python scripts/validate_chemked.py
 
 ### Software
 
-17. Vallat, R. (2023). AntroPy: Entropy and complexity of time-series in Python. https://github.com/raphaelvallat/antropy
+17. Vallat, R. (2023). AntroPy: Entropy and complexity of signal topology in Python. https://github.com/raphaelvallat/antropy
 
 18. Schölzel, C. (2019). Nolds: Nonlinear measures for dynamical systems. https://github.com/CSchoel/nolds
 

@@ -77,7 +77,7 @@ def run_prism_engines(observations: pl.DataFrame) -> pl.DataFrame:
         if i % 10 == 0:
             print(f"  {i}/{len(indicators)}...")
 
-        # Get time series
+        # Get signal topology
         ts = observations.filter(pl.col("indicator_id") == indicator_id)
         values = ts["value"].to_numpy()
 

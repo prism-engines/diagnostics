@@ -317,7 +317,7 @@ Many researchers have tried to predict RUL on this dataset. Here are the publish
 
 **PRISM** = **Persistent Relational Inference & Structural Measurement**
 
-It's a system that analyzes time series (like sensor data) by measuring their **behavioral geometry** - the mathematical "shape" of how they behave over time.
+It's a system that analyzes signal topology (like sensor data) by measuring their **behavioral geometry** - the mathematical "shape" of how they behave over time.
 
 ### The Key Insight
 
@@ -382,7 +382,7 @@ Domain: cmapss_fd001 (the entire FD001 dataset)
 **Why this structure?**
 
 - Each **engine** is a cohort (a group of related sensors)
-- Each **sensor** is an indicator (a single time series)
+- Each **sensor** is an indicator (a single signal topology)
 - **Modes** are discovered behavioral groupings (which sensors behave similarly)
 
 ---
@@ -562,7 +562,7 @@ For each sensor, PRISM computes 51 behavioral metrics using specialized mathemat
 
 ### Example: Hurst Exponent
 
-The **Hurst exponent** measures whether a time series has memory:
+The **Hurst exponent** measures whether a signal topology has memory:
 
 ```
 H < 0.5: Anti-persistent (tends to reverse direction)
@@ -1339,7 +1339,7 @@ python scripts/cmapss_evaluate_v3.py
 |------|------------|
 | **Domain** | The complete system (all of FD001) |
 | **Cohort** | A grouping (one engine with its 21 sensors) |
-| **Indicator** | A single time series (one sensor) |
+| **Indicator** | A single signal topology (one sensor) |
 | **Mode** | A discovered behavioral grouping (sensors that act alike) |
 | **Fingerprint** | Summary statistics of a sensor's behavior |
 

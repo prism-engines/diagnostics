@@ -80,7 +80,7 @@ def _mahalanobis_distance_matrix(df: pd.DataFrame) -> np.ndarray:
         # Regularize
         cov_inv = np.linalg.inv(cov + 0.01 * np.eye(n_indicators))
 
-    # Compute mean vectors for each indicator (its time series)
+    # Compute mean vectors for each indicator (its signal topology)
     # Then compute Mahalanobis distance between mean-centered representations
     means = X.mean(axis=0)  # (n_indicators,)
 
@@ -263,8 +263,8 @@ def compute_distance_with_derivation(
     Compute distance between two series with full mathematical derivation.
 
     Args:
-        x: First time series
-        y: Second time series
+        x: First signal topology
+        y: Second signal topology
         indicator_x: Name of X indicator
         indicator_y: Name of Y indicator
         window_id: Window identifier
@@ -292,7 +292,7 @@ def compute_distance_with_derivation(
     # Step 1: Input data
     deriv.add_step(
         title="Input Vectors",
-        equation="x, y ∈ ℝⁿ (time series as n-dimensional vectors)",
+        equation="x, y ∈ ℝⁿ (signal topology as n-dimensional vectors)",
         calculation=f"Series {indicator_x}:\n"
                     f"  n = {n} dimensions (time points)\n"
                     f"  mean = {np.mean(x):.6f}\n"
@@ -303,7 +303,7 @@ def compute_distance_with_derivation(
                     f"  norm = ||y|| = {np.linalg.norm(y):.6f}",
         result=n,
         result_name="n",
-        notes="Each time series is a vector in n-dimensional space"
+        notes="Each signal topology is a vector in n-dimensional space"
     )
 
     if method == "euclidean":

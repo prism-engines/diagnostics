@@ -222,7 +222,7 @@ class PhaseDetectorEngine:
         anchor_ratio_series: pd.Series
     ) -> List[Dict[str, Any]]:
         """
-        Detect phase transitions in a time series.
+        Detect phase transitions in a signal topology.
 
         Args:
             phases_series: Series of phase labels

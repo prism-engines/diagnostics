@@ -322,7 +322,7 @@ def main():
         if len(stay_vitals) < 100:
             continue
 
-        # Get time series for each vital
+        # Get signal topology for each vital
         vital_series = {}
         for vital in ["heart_rate", "arterial_bp_mean", "nibp_mean", "respiratory_rate", "spo2"]:
             v_data = stay_vitals.filter(pl.col("vital_name") == vital).sort("charttime")

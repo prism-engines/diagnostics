@@ -150,7 +150,7 @@ Foreshock patterns → regime transition detection
 
 **PRISM Approach:**
 ```
-Time series of fire perimeter growth
+Signal of fire perimeter growth
 Weather regime detection
 Fuel condition characterization
 ```
@@ -185,7 +185,7 @@ Fuel condition characterization
 | **Problem** | Detect El Niño, tipping points, regime changes |
 | **Data** | NOAA, ERA5 reanalysis, paleoclimate |
 | **Indicators** | SST, pressure, indices (NAO, PDO, ENSO) |
-| **PRISM Fit** | Long time series, regime detection |
+| **PRISM Fit** | Long signal topology, regime detection |
 | **Prize/Value** | Research grants, policy influence |
 
 **PRISM Approach:**
@@ -289,7 +289,7 @@ print(f"Accuracy: {scores.mean():.3f}")
 
 For any of these:
 
-> "We built a physics-based feature engineering framework that extracts 60 interpretable metrics from time series data. It beat NASA's benchmark on turbofan prognostics using a linear model. Every calculation has a step-by-step derivation document. We've validated on 8 different physical systems. Now we're applying it to [sepsis/batteries/grid/etc]."
+> "We built a physics-based feature engineering framework that extracts 60 interpretable metrics from signal topology data. It beat NASA's benchmark on turbofan prognostics using a linear model. Every calculation has a step-by-step derivation document. We've validated on 8 different physical systems. Now we're applying it to [sepsis/batteries/grid/etc]."
 
 ---
 

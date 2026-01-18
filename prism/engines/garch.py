@@ -32,7 +32,7 @@ METADATA = EngineMetadata(
     name="garch",
     engine_type="vector",
     description="GARCH volatility modeling and persistence",
-    domains={"time_series", "volatility"},
+    domains={"signal_topology", "volatility"},
     requires_window=True,
     deterministic=False,  # Optimization-based
 )
@@ -187,7 +187,7 @@ Where:
         calculation=f"n = {n}\nRange: [{values.min():.4f}, {values.max():.4f}]\nMean: {values.mean():.4f}",
         result=n,
         result_name="n",
-        notes="Input time series (prices or levels)"
+        notes="Input signal topology (prices or levels)"
     )
 
     # Step 2: Convert to log returns
@@ -248,7 +248,7 @@ Where:
     )
 
     # Step 6: Estimate GARCH parameters via moment matching
-    # Standard assumption: persistence = 0.9 for typical time series
+    # Standard assumption: persistence = 0.9 for typical signal topology
     persistence = 0.9
     alpha = min(max(0.05, acf1 * 0.5), 0.3)
     beta = persistence - alpha

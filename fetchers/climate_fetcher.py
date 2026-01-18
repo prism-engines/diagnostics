@@ -818,7 +818,7 @@ def _fetch_noaa_ncei(indicators: List[str], start_date: str, end_date: str) -> L
     # Global temperature anomaly
     if "NOAA_TEMP_GLOBAL" in indicators:
         try:
-            url = "https://www.ncei.noaa.gov/access/monitoring/climate-at-a-glance/global/time-series/globe/land_ocean/1/0/1880-2024.csv"
+            url = "https://www.ncei.noaa.gov/access/monitoring/climate-at-a-glance/global/signal topology/globe/land_ocean/1/0/1880-2024.csv"
 
             df = pd.read_csv(url, skiprows=4, names=['date', 'value'])
 
@@ -849,7 +849,7 @@ def _fetch_noaa_ncei(indicators: List[str], start_date: str, end_date: str) -> L
     # Land temperature
     if "NOAA_TEMP_LAND" in indicators:
         try:
-            url = "https://www.ncei.noaa.gov/access/monitoring/climate-at-a-glance/global/time-series/globe/land/1/0/1880-2024.csv"
+            url = "https://www.ncei.noaa.gov/access/monitoring/climate-at-a-glance/global/signal topology/globe/land/1/0/1880-2024.csv"
 
             df = pd.read_csv(url, skiprows=4, names=['date', 'value'])
 
@@ -880,7 +880,7 @@ def _fetch_noaa_ncei(indicators: List[str], start_date: str, end_date: str) -> L
     # Ocean temperature
     if "NOAA_TEMP_OCEAN" in indicators:
         try:
-            url = "https://www.ncei.noaa.gov/access/monitoring/climate-at-a-glance/global/time-series/globe/ocean/1/0/1880-2024.csv"
+            url = "https://www.ncei.noaa.gov/access/monitoring/climate-at-a-glance/global/signal topology/globe/ocean/1/0/1880-2024.csv"
 
             df = pd.read_csv(url, skiprows=4, names=['date', 'value'])
 

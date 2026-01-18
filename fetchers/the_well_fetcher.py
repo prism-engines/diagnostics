@@ -21,7 +21,7 @@ Physics:
     ∂B/∂t = δ_B ΔB + AB² - (f+k)B
 
 PRISM Test:
-    Can PRISM distinguish the 6 pattern regimes from spatially-averaged time series?
+    Can PRISM distinguish the 6 pattern regimes from spatially-averaged signal topology?
 """
 
 import numpy as np
@@ -159,7 +159,7 @@ def extract_spatial_statistics(data_array: np.ndarray) -> dict:
         data_array: Shape (n_timesteps, height, width) concentration field
 
     Returns:
-        Time series of spatial statistics
+        Signal of spatial statistics
     """
     n_t = data_array.shape[0]
 
@@ -189,7 +189,7 @@ def extract_spatial_statistics(data_array: np.ndarray) -> dict:
 
 def process_gray_scott_hdf5(h5_path: str, output_dir: Path, max_per_regime: int = 10):
     """
-    Process Gray-Scott HDF5 file and extract time series for PRISM.
+    Process Gray-Scott HDF5 file and extract signal topology for PRISM.
     """
     print(f"Processing: {h5_path}")
 
@@ -232,7 +232,7 @@ def process_gray_scott_hdf5(h5_path: str, output_dir: Path, max_per_regime: int 
                 species_A = traj_data[:, 0, :, :]  # (n_t, h, w)
                 species_B = traj_data[:, 1, :, :]
 
-                # Extract spatial statistics as time series
+                # Extract spatial statistics as signal topology
                 stats_A = extract_spatial_statistics(species_A)
                 stats_B = extract_spatial_statistics(species_B)
 

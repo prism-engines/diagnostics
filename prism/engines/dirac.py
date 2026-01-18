@@ -2,7 +2,7 @@
 PRISM Dirac Engine
 ==================
 
-Measures IMPULSE/SHOCK characteristics in time series.
+Measures IMPULSE/SHOCK characteristics in signal topology.
 Deployed when break_detector identifies transient spikes that revert.
 
 WHAT IT MEASURES:
@@ -113,7 +113,7 @@ def identify_impulses(
     2. The decay is measurable
     
     Args:
-        values: Time series values
+        values: Signal values
         break_indices: Indices where breaks were detected
         config: Configuration parameters
     
@@ -266,7 +266,7 @@ def compute_dirac(
     Full Dirac impulse analysis.
     
     Args:
-        values: Time series values
+        values: Signal values
         break_indices: Pre-detected break indices (optional)
         config: Configuration parameters
     

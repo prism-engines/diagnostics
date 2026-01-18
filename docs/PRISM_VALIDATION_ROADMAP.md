@@ -110,7 +110,7 @@ Ground Truth: k = A × (T/298)^n × exp(-Ea/RT)
 ```
 
 **PRISM Tests**:
-- Given concentration time series, can PRISM recover rate behavior?
+- Given concentration signal topology, can PRISM recover rate behavior?
 - Do field dynamics match Arrhenius kinetics?
 
 ---
@@ -195,7 +195,7 @@ Physics: Stress buildup → release (earthquake)
 #### 4.2 NOAA Climate Stations
 ```
 Source: noaa.gov
-Data: Temperature, pressure, humidity time series
+Data: Temperature, pressure, humidity signal topology
 Physics: Seasonal transitions, weather patterns
 ```
 
@@ -207,7 +207,7 @@ Physics: Seasonal transitions, weather patterns
 
 ---
 
-#### 4.3 PhysioNet (Medical Time Series)
+#### 4.3 PhysioNet (Medical Signal Topology)
 ```
 Source: physionet.org
 Data: ECG, EEG, ICU monitoring

@@ -14,7 +14,7 @@ Indicators: 18 sensors per bearing (HORIZ_RMS, VERT_RMS, SPEED, etc.)
 This is the CORRECT structure for bearing prognostics:
 - Each bearing is a cohort
 - Sensors within the bearing are indicators
-- Time series tracks degradation to failure
+- Signal tracks degradation to failure
 
 ---
 

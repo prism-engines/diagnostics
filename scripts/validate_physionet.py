@@ -2,7 +2,7 @@
 """
 PRISM Validation: PhysioNet ECG Data
 
-Tests whether PRISM can detect cardiac regime changes from ECG time series.
+Tests whether PRISM can detect cardiac regime changes from ECG signal topology.
 
 Ground Truth:
     - Beat annotations from cardiologists

@@ -229,9 +229,9 @@ class Derivation:
     def _get_purpose(self) -> str:
         """Get purpose description for this engine. Override in subclasses."""
         purposes = {
-            'hurst_exponent': "The Hurst exponent measures long-range dependence (memory) in a time series. It distinguishes between persistent processes (trending), random walks, and anti-persistent (mean-reverting) processes.",
+            'hurst_exponent': "The Hurst exponent measures long-range dependence (memory) in a signal topology. It distinguishes between persistent processes (trending), random walks, and anti-persistent (mean-reverting) processes.",
             'lyapunov_exponent': "The Lyapunov exponent quantifies the rate of separation of infinitesimally close trajectories. A positive value confirms deterministic chaos.",
-            'sample_entropy': "Sample entropy measures the complexity/regularity of a time series. Lower values indicate more regular, predictable patterns.",
+            'sample_entropy': "Sample entropy measures the complexity/regularity of a signal topology. Lower values indicate more regular, predictable patterns.",
             'permutation_entropy': "Permutation entropy measures complexity based on the distribution of ordinal patterns in the data.",
             'spectral_entropy': "Spectral entropy measures the flatness of the power spectrum. High values indicate broadband noise; low values indicate concentrated periodic components.",
             'dfa': "Detrended Fluctuation Analysis (DFA) measures self-similarity and long-range correlations, robust to non-stationarity.",

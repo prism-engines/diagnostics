@@ -234,8 +234,8 @@ def compute_cross_correlation_with_derivation(
     Compute cross-correlation with full mathematical derivation.
 
     Args:
-        x: First time series
-        y: Second time series
+        x: First signal topology
+        y: Second signal topology
         indicator_x: Name of X indicator
         indicator_y: Name of Y indicator
         window_id: Window identifier
@@ -262,7 +262,7 @@ def compute_cross_correlation_with_derivation(
 
     # Step 1: Input data
     deriv.add_step(
-        title="Input Time Series",
+        title="Input Signal Topology",
         equation="x = {x₁, x₂, ..., xₙ}, y = {y₁, y₂, ..., yₙ}",
         calculation=f"Series {indicator_x}:\n"
                     f"  n = {n} observations\n"

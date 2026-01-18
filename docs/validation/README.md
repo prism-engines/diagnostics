@@ -162,12 +162,12 @@ All validation follows academic research standards:
 
 1. Strogatz, S. H. (2015). *Nonlinear Dynamics and Chaos* (2nd ed.). Westview Press.
 2. Ott, E. (2002). *Chaos in Dynamical Systems* (2nd ed.). Cambridge University Press.
-3. Kantz, H., & Schreiber, T. (2004). *Nonlinear Time Series Analysis* (2nd ed.). Cambridge University Press.
+3. Kantz, H., & Schreiber, T. (2004). *Nonlinear Signal Topology Analysis* (2nd ed.). Cambridge University Press.
 
-### Time Series Analysis
+### Signal Topology Analysis
 
-4. Box, G. E. P., Jenkins, G. M., Reinsel, G. C., & Ljung, G. M. (2015). *Time Series Analysis: Forecasting and Control* (5th ed.). Wiley.
-5. Hamilton, J. D. (1994). *Time Series Analysis*. Princeton University Press.
+4. Box, G. E. P., Jenkins, G. M., Reinsel, G. C., & Ljung, G. M. (2015). *Signal Topology Analysis: Forecasting and Control* (5th ed.). Wiley.
+5. Hamilton, J. D. (1994). *Signal Topology Analysis*. Princeton University Press.
 
 ### Information Theory
 

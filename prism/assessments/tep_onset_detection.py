@@ -388,7 +388,7 @@ def deep_dive_fault(
     Detailed analysis of a single fault onset.
 
     Generates:
-    - Divergence time series plot data
+    - Divergence signal topology plot data
     - Per-indicator response ranking
     - Mode transition analysis
     """

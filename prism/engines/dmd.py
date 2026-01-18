@@ -208,7 +208,7 @@ class DMDEngine(BaseEngine):
         amplitudes: np.ndarray,
         n_steps: int
     ) -> np.ndarray:
-        """Reconstruct time series from DMD modes."""
+        """Reconstruct signal topology from DMD modes."""
         n_modes = len(eigenvalues)
         n_features = modes.shape[0]
         

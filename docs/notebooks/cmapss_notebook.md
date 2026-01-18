@@ -162,7 +162,7 @@
 
 **OSCILLATORY classification** requires periodicity > 0.5.
 
-In FD001, 473 indicator time series (19%) have periodicity > 0.5. These are concentrated in:
+In FD001, 473 indicator signal topology (19%) have periodicity > 0.5. These are concentrated in:
 - **op3** (operational setting): mean periodicity 0.64
 - **T2** (inlet temperature): mean periodicity 0.64
 - **PCNfR** (corrected fan speed): mean periodicity 0.64
@@ -388,7 +388,7 @@ Cohort geometry computes structural metrics across indicator vectors within each
 
 # PRISM 7-Output Characterization
 
-Each time series is characterized with **6 continuous axes** + **1 discontinuity flag**.
+Each signal topology is characterized with **6 continuous axes** + **1 discontinuity flag**.
 
 | Output | Type | Description |
 |--------|------|-------------|

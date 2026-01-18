@@ -2,7 +2,7 @@
 PRISM Physics Runner
 ====================
 
-Tests universal physics laws on time series behavioral geometry.
+Tests universal physics laws on signal topology behavioral geometry.
 
 INPUT:
     state/indicator.parquet    (indicator position over time)
@@ -23,7 +23,7 @@ PIPELINE POSITION:
                                                       "Do universal laws hold?"
 
 HYPOTHESIS:
-    If time series in behavioral space obey physics laws (energy conservation,
+    If signal topology in behavioral space obey physics laws (energy conservation,
     entropy increase, action minimization), then PRISM has discovered something
     universal about complex systems.
 
@@ -331,7 +331,7 @@ def compute_indicator_physics(
     rows = filtered.to_dicts()
     results = []
 
-    # Extract time series of position (distance to centroid)
+    # Extract signal topology of position (distance to centroid)
     dates = [r['obs_date'] for r in rows]
     positions = []
 

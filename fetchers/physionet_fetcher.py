@@ -2,7 +2,7 @@
 """
 PhysioNet Fetcher for PRISM Validation
 
-Downloads and processes physiological time series data from PhysioNet.
+Downloads and processes physiological signal topology data from PhysioNet.
 
 Available Datasets:
     - MIT-BIH Arrhythmia Database (mitdb): 48 ECG recordings with beat annotations
@@ -13,7 +13,7 @@ Ground Truth:
     - Rhythm annotations (Normal, Atrial Fibrillation, etc.)
 
 PRISM Tests:
-    - Can PRISM detect arrhythmia regimes from ECG time series?
+    - Can PRISM detect arrhythmia regimes from ECG signal topology?
     - Does entropy increase during irregular rhythms?
     - Can Hurst exponent distinguish normal vs abnormal?
 

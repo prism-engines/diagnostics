@@ -11,8 +11,8 @@ Each domain declares its temporal characteristics:
 
 Available domains:
 - cmapss: NASA turbofan engine degradation
-- climate: Climate and environmental time series
-- archaeology: Archaeological and geological time series
+- climate: Climate and environmental signal topology
+- archaeology: Archaeological and geological signal topology
 - particle_physics: Particle collision and decay measurements
 - chemistry: Chemical reaction kinetics and spectroscopy
 - eeg: Electroencephalography brain signal analysis

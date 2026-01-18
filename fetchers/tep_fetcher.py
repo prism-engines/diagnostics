@@ -8,7 +8,7 @@ chemical process simulation used for fault detection and process monitoring.
 Dataset Info:
 - 52 process variables (41 measurements + 11 manipulated variables)
 - Multiple fault scenarios
-- Continuous time series with random faults injected
+- Continuous signal topology with random faults injected
 
 Data Sources:
 - GitHub: anasouzac/new_tep_datasets (CSV format)
@@ -253,7 +253,7 @@ def fetch(config: Dict[str, Any]) -> List[Dict[str, Any]]:
 
     all_observations = []
 
-    # Base date for synthetic time series
+    # Base date for synthetic signal topology
     # TEP sampling is typically 3 minutes, so use that
     base_date = date(2000, 1, 1)
     minutes_per_sample = 3

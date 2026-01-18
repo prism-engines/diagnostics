@@ -94,7 +94,7 @@ def analyze_prism_lag(domain: str = 'pendulum_regime',
         df_ind = df.filter(pl.col('indicator_id') == indicator)
 
         for engine, metric in detection_signals:
-            # Get this metric's time series
+            # Get this metric's signal topology
             metric_df = df_ind.filter(
                 (pl.col('engine') == engine) &
                 (pl.col('metric_name') == metric)

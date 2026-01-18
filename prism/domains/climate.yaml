@@ -1,8 +1,8 @@
 # prism/domains/climate.yaml
-# Domain configuration for climate and environmental time series
+# Domain configuration for climate and environmental signal topology
 
 domain: climate
-description: Climate and environmental time series
+description: Climate and environmental signal topology
 
 temporal:
   min_resolution: 1d          # Daily measurements

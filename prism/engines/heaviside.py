@@ -2,7 +2,7 @@
 PRISM Heaviside Engine
 ======================
 
-Measures STEP FUNCTION characteristics in time series.
+Measures STEP FUNCTION characteristics in signal topology.
 Deployed when break_detector identifies persistent level shifts.
 
 WHAT IT MEASURES:
@@ -111,7 +111,7 @@ def identify_steps(
     2. The transition is relatively sharp
     
     Args:
-        values: Time series values
+        values: Signal values
         break_indices: Indices where breaks were detected
         config: Configuration parameters
     
@@ -211,7 +211,7 @@ def compute_heaviside(
     Full Heaviside step analysis.
     
     Args:
-        values: Time series values
+        values: Signal values
         break_indices: Pre-detected break indices (optional)
         config: Configuration parameters
     

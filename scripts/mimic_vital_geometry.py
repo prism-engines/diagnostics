@@ -110,7 +110,7 @@ def compute_pairwise_geometry(observations, indicators, min_overlap=20):
         if len(vital_names) < 2:
             continue
 
-        # Get time series for each vital
+        # Get signal topology for each vital
         vital_series = {}
         for vital in vital_names:
             if HAS_POLARS:

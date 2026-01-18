@@ -109,13 +109,13 @@ In physics, you know the state variables (position, momentum).
 
 In real data, you often observe only ONE variable (e.g., temperature, vibration) but the underlying system has many hidden dimensions.
 
-**Question:** Can you recover the phase space structure from a single observed time series?
+**Question:** Can you recover the phase space structure from a single observed signal topology?
 
 ### 2.2 Takens' Embedding Theorem (1981)
 
 **Takens' theorem** says: Yes, under certain conditions.
 
-Given a time series {x(t)}, construct **delay vectors**:
+Given a signal topology {x(t)}, construct **delay vectors**:
 
 ```
 v(t) = [x(t), x(t-τ), x(t-2τ), ..., x(t-(d-1)τ)]
@@ -190,7 +190,7 @@ Dimensions are *different mathematical characterizations of behavior*.
 ### 3.3 What PRISM Does That's Different
 
 Classical approach:
-> "The system has hidden dimensions. Let's recover them from the time series."
+> "The system has hidden dimensions. Let's recover them from the signal topology."
 
 PRISM approach:
 > "Let's define new dimensions based on behavioral properties. These become the space."
@@ -211,7 +211,7 @@ Measures long-range dependence / persistence.
 
 **R/S Analysis Method:**
 
-For a time series of length n, divide into subseries of length τ.
+For a signal topology of length n, divide into subseries of length τ.
 
 For each subseries:
 1. Compute mean: m = (1/τ) Σ xᵢ
@@ -238,7 +238,7 @@ Measures irregularity / unpredictability.
 
 **Algorithm:**
 
-Given time series {x₁, x₂, ..., xₙ}, embedding dimension m, tolerance r:
+Given signal topology {x₁, x₂, ..., xₙ}, embedding dimension m, tolerance r:
 
 1. Form template vectors: uᵢᵐ = [xᵢ, xᵢ₊₁, ..., xᵢ₊ₘ₋₁]
 
@@ -359,7 +359,7 @@ Finds the main axes of variation in behavioral space.
 
 Measures similarity allowing for time shifts.
 
-**Original application:** Compare time series that may be stretched/compressed.
+**Original application:** Compare signal topology that may be stretched/compressed.
 
 **In PRISM's behavioral space:** Compare trajectories through behavioral space, allowing for different speeds.
 
@@ -571,7 +571,7 @@ Classical phase space analysis asks:
 > "Given this dynamical system, what is its phase space structure?"
 
 PRISM asks:
-> "Given these time series, let's construct a behavioral phase space and analyze its geometry."
+> "Given these signal topology, let's construct a behavioral phase space and analyze its geometry."
 
 The math tools (distance, PCA, trajectories) are borrowed from classical theory.
 

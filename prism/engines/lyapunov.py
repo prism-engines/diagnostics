@@ -44,7 +44,7 @@ METADATA = EngineMetadata(
     name="lyapunov",
     engine_type="vector",
     description="Largest Lyapunov exponent for chaos detection",
-    domains={"time_series", "chaos"},
+    domains={"signal_topology", "chaos"},
     requires_window=True,
     deterministic=True,
 )
@@ -121,7 +121,7 @@ def compute_lyapunov_with_derivation(
     # Step 3: Time-delay embedding
     dim = embedding_dim
     tau = time_delay
-    embedded = _embed_time_series(normalized, dim, tau)
+    embedded = _embed_signal_topology(normalized, dim, tau)
     n_vectors = embedded.shape[0]
 
     deriv.add_step(
@@ -269,9 +269,9 @@ def compute_lyapunov(values: np.ndarray, embedding_dim: int = 3,
         }
 
 
-def _embed_time_series(x: np.ndarray, dim: int, tau: int) -> np.ndarray:
+def _embed_signal_topology(x: np.ndarray, dim: int, tau: int) -> np.ndarray:
     """
-    Time-delay embedding of a time series.
+    Time-delay embedding of a signal topology.
     """
     n = len(x)
     n_vectors = n - (dim - 1) * tau
@@ -368,8 +368,8 @@ def _rosenstein_lyapunov(
 
     Returns (lyapunov_exponent, divergence_curve)
     """
-    # Embed time series
-    embedded = _embed_time_series(x, dim, tau)
+    # Embed signal topology
+    embedded = _embed_signal_topology(x, dim, tau)
     n = embedded.shape[0]
 
     if n < max_iterations + min_separation:
@@ -428,7 +428,7 @@ def _estimate_embedding_params(x: np.ndarray) -> Tuple[int, int]:
             break
 
     # Embedding dimension: heuristic based on data length
-    # Typically 2-10 for time series data
+    # Typically 2-10 for signal topology data
     if n < 200:
         dim = 2
     elif n < 500:

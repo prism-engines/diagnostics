@@ -8,7 +8,7 @@ Energy represents the kinetic motion of the behavioral manifold - how fast
 and how much the system is changing. This engine transforms point-in-time
 energy readings into temporal features.
 
-Input: geometry.displacement time series
+Input: geometry.displacement signal topology
 Output: Energy dynamics metrics (MA, acceleration, z-scores)
 
 Key Metrics:
@@ -69,7 +69,7 @@ class EnergyDynamicsEngine:
 
     def run(self, energy_series: pd.Series, current_idx: int = -1) -> EnergyDynamicsResult:
         """
-        Compute energy dynamics from a time series of energy values.
+        Compute energy dynamics from a signal topology of energy values.
 
         Args:
             energy_series: Series of energy_total values indexed by date

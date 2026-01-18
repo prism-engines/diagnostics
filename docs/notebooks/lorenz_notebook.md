@@ -394,5 +394,5 @@ PRISM_DOMAIN=lorenz python -m prism.runners.geometry --cohort
 ## References
 
 1. Lorenz, E. N. (1963). "Deterministic Nonperiodic Flow". Journal of the Atmospheric Sciences. 20 (2): 130–141.
-2. Sprott, J. C. (2003). Chaos and Time-Series Analysis. Oxford University Press.
+2. Sprott, J. C. (2003). Chaos and Signal Topology Analysis. Oxford University Press.
 3. Marwan, N. et al. (2007). "Recurrence plots for the analysis of complex systems". Physics Reports. 438 (5-6): 237-329.

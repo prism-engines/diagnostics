@@ -6,7 +6,7 @@
 
 ## Overview
 
-**prism-core** is a data-only repository. It fetches, measures, and stores time-series data.
+**prism-core** is a data-only repository. It fetches, measures, and stores signal topology data.
 
 ```
 FETCH → MEASURE → STORE
@@ -26,7 +26,7 @@ That's it. No interpretation. No state inference. No dynamics modeling.
 External APIs          Parquet Layers             Output
 
   NASA    ───┐         ┌─ raw/observations        Per-indicator
-  USGS    ───┼─ fetch ─┼─ vector/indicator        time-series
+  USGS    ───┼─ fetch ─┼─ vector/indicator        signal topology
   NOAA    ───┤         ├─ geometry/cohort         measurements
   TEP     ───┘         └─ state/indicator         and relationships
 ```
@@ -195,7 +195,7 @@ python -m prism.audit --list
 
 ## Vector Engines
 
-Per-indicator measurements. Each produces a time-series of measurements.
+Per-indicator measurements. Each produces a signal topology of measurements.
 
 | Engine | What it measures |
 |--------|------------------|

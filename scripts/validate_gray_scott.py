@@ -20,7 +20,7 @@ Physics:
     Where f (feed rate) and k (kill rate) determine the regime.
 
 PRISM Test:
-    Can PRISM distinguish the 6 pattern regimes from spatially-averaged time series?
+    Can PRISM distinguish the 6 pattern regimes from spatially-averaged signal topology?
 
 Data Source:
     PolymathicAI / The Well (NeurIPS 2024)

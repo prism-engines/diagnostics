@@ -6,7 +6,7 @@ Discover behavioral modes from Laplace signatures.
 NOMENCLATURE:
     - Domain:    Required. The complete system under analysis. NO DEFAULT.
     - Cohort:    Predefined physical/logical grouping (input)
-    - Indicator: A single time series (input)
+    - Indicator: A single signal topology (input)
     - Mode:      Discovered behavioral grouping (output)
 
 Indicators that share similar Laplace dynamics belong to the same MODE.
@@ -497,7 +497,7 @@ def compute_affinity_dynamics(
     Dropping affinity = indicator leaving its mode = regime transition.
 
     Args:
-        modes_history: Time-series of mode assignments (multiple windows)
+        modes_history: Signal topology of mode assignments (multiple windows)
                       Must have 'window_end' or 'obs_date' column
         cohort_id: Cohort to analyze
 

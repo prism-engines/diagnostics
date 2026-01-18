@@ -51,7 +51,7 @@ def characterize_indicator(
 
     Args:
         indicator_id: The indicator identifier
-        values: Time series values (1D array, will be cleaned of NaN)
+        values: Signal values (1D array, will be cleaned of NaN)
         dates: Optional observation dates (for frequency detection)
         window_end: Optional window end date (defaults to today)
 

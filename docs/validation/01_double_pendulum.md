@@ -145,7 +145,7 @@ E = T + V = constant
 
 ### Lyapunov Exponent Estimation
 
-4. **Wolf, A., Swift, J. B., Swinney, H. L., & Vastano, J. A.** (1985). Determining Lyapunov exponents from a time series. *Physica D*, 16(3), 285-317.
+4. **Wolf, A., Swift, J. B., Swinney, H. L., & Vastano, J. A.** (1985). Determining Lyapunov exponents from a signal topology. *Physica D*, 16(3), 285-317.
    - DOI: [10.1016/0167-2789(85)90011-9](https://doi.org/10.1016/0167-2789(85)90011-9)
    - Standard algorithm for Lyapunov estimation from data
    - Used by `nolds` library in PRISM
@@ -157,12 +157,12 @@ E = T + V = constant
 
 ### Entropy Measures
 
-6. **Richman, J. S., & Moorman, J. R.** (2000). Physiological time-series analysis using approximate entropy and sample entropy. *American Journal of Physiology-Heart and Circulatory Physiology*, 278(6), H2039-H2049.
+6. **Richman, J. S., & Moorman, J. R.** (2000). Physiological signal topology analysis using approximate entropy and sample entropy. *American Journal of Physiology-Heart and Circulatory Physiology*, 278(6), H2039-H2049.
    - DOI: [10.1152/ajpheart.2000.278.6.H2039](https://doi.org/10.1152/ajpheart.2000.278.6.H2039)
    - Sample entropy algorithm
    - Implemented via `antropy` library in PRISM
 
-7. **Bandt, C., & Pompe, B.** (2002). Permutation entropy: A natural complexity measure for time series. *Physical Review Letters*, 88(17), 174102.
+7. **Bandt, C., & Pompe, B.** (2002). Permutation entropy: A natural complexity measure for signal topology. *Physical Review Letters*, 88(17), 174102.
    - DOI: [10.1103/PhysRevLett.88.174102](https://doi.org/10.1103/PhysRevLett.88.174102)
    - Permutation entropy for dynamical systems
    - Robust to noise, used in PRISM entropy engine
@@ -190,7 +190,7 @@ E = T + V = constant
 
 | Library | Version | Purpose | Citation |
 |---------|---------|---------|----------|
-| `antropy` | 0.1.6+ | Entropy measures | Vallat, R. (2023). AntroPy: Entropy and complexity of time-series in Python. |
+| `antropy` | 0.1.6+ | Entropy measures | Vallat, R. (2023). AntroPy: Entropy and complexity of signal topology in Python. |
 | `nolds` | 0.5.2+ | Lyapunov, Hurst | Schölzel, C. (2019). Nonlinear measures for dynamical systems. |
 | `pyrqa` | 8.0.0+ | Recurrence analysis | Rawald, T., Sips, M., & Marwan, N. (2017). PyRQA—Recurrence quantification analysis in Python. |
 | `scipy` | 1.10+ | ODE integration | Virtanen, P., et al. (2020). SciPy 1.0: Fundamental algorithms for scientific computing in Python. *Nature Methods*, 17, 261-272. |
@@ -204,7 +204,7 @@ Generated data location: `data/double_pendulum/`
 ```
 data/double_pendulum/
 ├── raw/
-│   └── observations.parquet    # Time series (θ₁, ω₁, θ₂, ω₂, x₂, y₂)
+│   └── observations.parquet    # Signal (θ₁, ω₁, θ₂, ω₂, x₂, y₂)
 └── vector/
     ├── indicator.parquet       # PRISM metrics per variable
     └── trajectory_summary.parquet  # Ground truth labels

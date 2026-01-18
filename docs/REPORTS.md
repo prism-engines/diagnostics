@@ -21,7 +21,7 @@ python scripts/reports.py --db md:prism --report 00_catalog_health
 
 ### Export to CSV
 ```bash
-python scripts/reports.py --report 20_univariate_timeseries \
+python scripts/reports.py --report 20_univariate_signal topology \
     --indicator BEARING_01 --metric hurst_exponent \
     --start 2020-01-01 --end 2024-12-31 \
     --format csv --out sensor_hurst.csv
@@ -52,7 +52,7 @@ python scripts/reports.py --report 60_regime_timeline --sql
 |-------|----------|-------------|
 | 00-09 | Health | Catalog health, coverage gaps |
 | 10-19 | Raw | Raw observation summaries |
-| 20-29 | Univariate | Single-indicator time series |
+| 20-29 | Univariate | Single-indicator signal topology |
 | 30-39 | Geometry | Cohort structure snapshots |
 | 40-49 | State | Temporal dynamics |
 | 50-59 | Coupling | Univariate vs state comparison |
@@ -66,7 +66,7 @@ python scripts/reports.py --report 60_regime_timeline --sql
 Copy any SQL file content into a MotherDuck notebook cell. Replace `{{placeholders}}` with actual values:
 
 ```sql
--- Example: 20_univariate_timeseries.sql
+-- Example: 20_univariate_signal topology.sql
 -- Replace {{indicator_id}} with 'BEARING_01', etc.
 
 SELECT

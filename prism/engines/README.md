@@ -1,6 +1,6 @@
 # PRISM Engines
 
-**21 behavioral measurement engines for time-series analysis.**
+**21 behavioral measurement engines for signal topology analysis.**
 
 All engines are pure functions or classes that take numerical data and return structured metrics. No side effects, no database access, no interpretation.
 
@@ -125,7 +125,7 @@ result = mi.compute(matrix)
 
 ### State Engines (6)
 
-Multi-indicator temporal dynamics. Input: paired time series. Output: dynamic relationship metrics.
+Multi-indicator temporal dynamics. Input: paired signal topology. Output: dynamic relationship metrics.
 
 | Engine | Class | Measures |
 |--------|-------|----------|

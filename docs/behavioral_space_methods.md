@@ -2,7 +2,7 @@
 
 A comprehensive catalog of mathematical methods for analyzing indicators in **behavioral space** - the geometric representation where each indicator is a point defined by its behavioral characteristics (Hurst exponent, entropy, volatility, etc.).
 
-> **Key Distinction**: These methods operate on **static vectors** - positions in behavioral space at a given time. They do NOT require temporal sequences like time-series methods (DTW, Granger, etc.).
+> **Key Distinction**: These methods operate on **static vectors** - positions in behavioral space at a given time. They do NOT require temporal sequences like signal topology methods (DTW, Granger, etc.).
 
 ---
 
@@ -323,8 +323,8 @@ raw.observations → Vector Engines → results.vector
                               results.geometry + structure.*
 ```
 
-**Key Distinction from Time-Series Engines**:
-| Behavioral Space Engines | Time-Series Engines |
+**Key Distinction from Signal Topology Engines**:
+| Behavioral Space Engines | Signal Topology Engines |
 |--------------------------|---------------------|
 | Compare static positions | Compare temporal evolution |
 | Input: indicator × dimension matrix | Input: time × indicator matrix |

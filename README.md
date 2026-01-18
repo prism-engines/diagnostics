@@ -2,7 +2,7 @@
 
 **Persistent Relational Inference & Structural Measurement**
 
-A behavioral geometry engine for time-series analysis. PRISM transforms raw observations into a **Laplace Vector Field** representation, where indicators self-organize into natural cohorts based on field topology. **THE MATH REVEALS STRUCTURE.**
+A behavioral geometry engine for signal topology analysis. PRISM transforms raw observations into a **Laplace Vector Field** representation, where indicators self-organize into natural cohorts based on field topology. **THE MATH REVEALS STRUCTURE.**
 
 ---
 
@@ -655,7 +655,7 @@ Same computation but cohort vectors in domain space.
 ```
 data/
 ├── raw/
-│   ├── observations.parquet      # Time series data
+│   ├── observations.parquet      # Signal data
 │   ├── indicators.parquet        # Indicator metadata
 │   └── characterization.parquet  # 6-axis classification
 ├── config/

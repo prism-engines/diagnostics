@@ -54,7 +54,7 @@ def get_indicator_values(obs: pl.DataFrame, indicator_id: str) -> np.ndarray:
 
 def compute_vector_metrics(values: np.ndarray) -> dict:
     """
-    Compute all PRISM vector metrics for a time series.
+    Compute all PRISM vector metrics for a signal topology.
     """
     metrics = {}
 

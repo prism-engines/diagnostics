@@ -50,7 +50,7 @@ METADATA = EngineMetadata(
     name="realized_vol",
     engine_type="vector",
     description="Realized volatility, decline-from-peak, and distribution metrics",
-    domains={"volatility", "variability", "decline", "time_series"},
+    domains={"volatility", "variability", "decline", "signal_topology"},
     requires_window=True,
     deterministic=True,
 )

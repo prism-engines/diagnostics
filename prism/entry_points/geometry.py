@@ -286,7 +286,7 @@ def get_pairwise_data(
     window_days: int
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Fetch aligned time series for two indicators.
+    Fetch aligned signal topology for two indicators.
 
     Returns (series_a, series_b) as numpy arrays.
     """
@@ -338,7 +338,7 @@ def get_indicator_window_vectors(
     """
     Build window_vectors dict for barycenter computation.
 
-    For each indicator, fetch time series for each window size and create
+    For each indicator, fetch signal topology for each window size and create
     feature vectors (simple stats as representation).
 
     Returns:
@@ -368,7 +368,7 @@ def get_indicator_window_vectors(
 
             if len(df) >= 15:  # Minimum observations
                 values = df['value'].to_numpy()
-                # Create feature vector from the time series
+                # Create feature vector from the signal topology
                 vectors[window_days] = np.array([
                     np.mean(values),
                     np.std(values),
@@ -561,7 +561,7 @@ def compute_pairwise_geometry(
     Direct computation without engine class overhead for efficiency.
 
     Args:
-        series_a, series_b: Aligned time series
+        series_a, series_b: Aligned signal topology
         ind_a, ind_b: Indicator names
 
     Returns:

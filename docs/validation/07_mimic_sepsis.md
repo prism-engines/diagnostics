@@ -32,7 +32,7 @@ The demo dataset's timing structure (91% of patients had infection at or before 
 **Demo Data Extracted:**
 - ICU stays: 155
 - Observations: 101,528
-- Indicators: 1,419 (vital sign time series)
+- Indicators: 1,419 (vital sign signal topology)
 - Regimes: 479 septic, 940 stable
 
 ## Reproducibility
@@ -441,7 +441,7 @@ The math is honest: we found a strong **association** (F=65.82) but cannot claim
 
 ### Entropy in Sepsis
 
-7. **Richman, J. S., & Moorman, J. R.** (2000). Physiological time-series analysis using approximate entropy and sample entropy. *Am J Physiol Heart Circ Physiol*, 278(6), H2039-H2049.
+7. **Richman, J. S., & Moorman, J. R.** (2000). Physiological signal topology analysis using approximate entropy and sample entropy. *Am J Physiol Heart Circ Physiol*, 278(6), H2039-H2049.
    - DOI: [10.1152/ajpheart.2000.278.6.H2039](https://doi.org/10.1152/ajpheart.2000.278.6.H2039)
 
 8. **Chen, W., et al.** (2009). Characterization of surface EMG signal based on fuzzy entropy. *IEEE Trans Neural Syst Rehabil Eng*, 17(2), 154-160.
@@ -468,7 +468,7 @@ The math is honest: we found a strong **association** (F=65.82) but cannot claim
 ```
 data/mimic_demo/
 ├── raw/
-│   ├── observations.parquet   # Vital sign time series (101,528 points)
+│   ├── observations.parquet   # Vital sign signal topology (101,528 points)
 │   └── indicators.parquet     # ICU stay × vital metadata
 ├── config/
 │   ├── cohorts.parquet

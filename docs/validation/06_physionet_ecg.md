@@ -214,7 +214,7 @@ PRISM successfully distinguishes cardiac rhythm regimes:
 
 ### Entropy in Cardiac Analysis
 
-3. **Richman, J. S., & Moorman, J. R.** (2000). Physiological time-series analysis using approximate entropy and sample entropy. *American Journal of Physiology-Heart and Circulatory Physiology*, 278(6), H2039-H2049.
+3. **Richman, J. S., & Moorman, J. R.** (2000). Physiological signal topology analysis using approximate entropy and sample entropy. *American Journal of Physiology-Heart and Circulatory Physiology*, 278(6), H2039-H2049.
    - DOI: [10.1152/ajpheart.2000.278.6.H2039](https://doi.org/10.1152/ajpheart.2000.278.6.H2039)
    - Sample entropy methodology
 
@@ -243,7 +243,7 @@ PRISM successfully distinguishes cardiac rhythm regimes:
 ```
 data/physionet_mitdb/
 ├── raw/
-│   ├── observations.parquet   # ECG time series (432,000 points)
+│   ├── observations.parquet   # ECG signal topology (432,000 points)
 │   └── indicators.parquet     # Segment metadata
 ├── config/
 │   ├── cohorts.parquet

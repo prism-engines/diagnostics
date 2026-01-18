@@ -12,7 +12,7 @@ Types of Transfer:
     - spillover: Gradual transmission of structural changes
     - co-movement: Simultaneous changes without clear lead/lag
 
-Input: Cohort-level energy/tension time series
+Input: Cohort-level energy/tension signal topology
 Output: Transfer metrics between cohort pairs
 
 Key Metrics:
@@ -86,7 +86,7 @@ class TransferDetectorEngine:
         cohort_b: str = 'B'
     ) -> TransferResult:
         """
-        Detect transfer between two cohort time series.
+        Detect transfer between two cohort signal topology.
 
         Args:
             series_a: Energy/tension series for cohort A
@@ -296,7 +296,7 @@ class TransferDetectorEngine:
         Detect transfers between all cohort pairs.
 
         Args:
-            cohort_series: Dict mapping cohort_id -> time series
+            cohort_series: Dict mapping cohort_id -> signal topology
 
         Returns:
             List of TransferResult for all pairs

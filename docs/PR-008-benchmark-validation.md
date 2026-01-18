@@ -238,7 +238,7 @@ y = hydraulic.data.targets
 **Ground Truth:**
 - 89 turbine-years of SCADA data
 - 44 labeled anomaly time frames
-- 51 normal behavior time series
+- 51 normal behavior signal topology
 - 3 wind farms (86-957 features each)
 
 **Download:**

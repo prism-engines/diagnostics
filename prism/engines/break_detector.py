@@ -5,7 +5,7 @@ PRISM Break Detector Engine
 Detects regime breaks at OBSERVATION level - no windowing required.
 Point precision. Runs FIRST in characterize pipeline.
 
-This engine identifies structural breaks in time series using multiple
+This engine identifies structural breaks in signal topology using multiple
 detection methods, then analyzes break patterns (periodic, accelerating,
 irregular) to inform adaptive windowing.
 
@@ -314,7 +314,7 @@ def compute_breaks(
     Comprehensive break detection using multiple methods.
     
     Args:
-        values: Time series values
+        values: Signal values
         config: Configuration dict (uses DEFAULT_CONFIG if None)
         timestamps: Optional timestamps for each observation
     

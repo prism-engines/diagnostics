@@ -202,7 +202,7 @@ def create_prism_observations(
                 n_points=100
             )
 
-            # Create time series (treat substrate as "time")
+            # Create signal topology (treat substrate as "time")
             base_date = datetime(2020, 1, 1)
             for i, (s, v) in enumerate(zip(substrate, velocity)):
                 observations.append({
@@ -312,7 +312,7 @@ def main():
                 n_points=100
             )
 
-            # Create time series
+            # Create signal topology
             base_date = datetime(2020, 1, 1)
             for i, v in enumerate(velocity):
                 observations.append({

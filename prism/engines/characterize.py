@@ -2,7 +2,7 @@
 PRISM Characterization Engine
 =============================
 
-Computes 6-axis dynamical classification for time series data.
+Computes 6-axis dynamical classification for signal topology data.
 This is the gatekeeper that determines valid metrics and weights.
 
 Axes:
@@ -324,7 +324,7 @@ class CharacterizationResult:
 
 class Characterizer:
     """
-    Computes 6-axis dynamical characterization of time series.
+    Computes 6-axis dynamical characterization of signal topology.
 
     This is a lightweight pass that determines:
     1. What type of dynamical system is this?
@@ -357,10 +357,10 @@ class Characterizer:
         dates: Optional[np.ndarray] = None,
     ) -> CharacterizationResult:
         """
-        Compute 6-axis characterization for a time series.
+        Compute 6-axis characterization for a signal topology.
 
         Args:
-            values: Time series values (1D array)
+            values: Signal values (1D array)
             indicator_id: Identifier for this indicator
             window_end: End date of window
             dates: Observation dates (optional, for frequency detection)
@@ -1238,7 +1238,7 @@ class Characterizer:
         - Produces degenerate RQA (constant input)
 
         Args:
-            values: Time series values
+            values: Signal values
             dates: Observation dates (optional)
             min_step_duration: Minimum mean duration (days) between changes to qualify
 

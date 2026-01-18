@@ -272,8 +272,8 @@ def compute_granger_with_derivation(
     Tests: Does X Granger-cause Y? (Do past values of X help predict Y?)
 
     Args:
-        x: Time series X (potential cause)
-        y: Time series Y (potential effect)
+        x: Signal X (potential cause)
+        y: Signal Y (potential effect)
         indicator_x, indicator_y: Names for the indicators
         window_id: Window identifier
         max_lag: Maximum lag to test
@@ -304,7 +304,7 @@ def compute_granger_with_derivation(
 
     # Step 1: Input data
     deriv.add_step(
-        title="Input Time Series",
+        title="Input Signal Topology",
         equation="X = {x₁, ..., xₙ}, Y = {y₁, ..., yₙ}",
         calculation=f"X ({indicator_x}): n={len(x)}, mean={np.mean(x):.4f}, std={np.std(x):.4f}\nY ({indicator_y}): n={len(y)}, mean={np.mean(y):.4f}, std={np.std(y):.4f}\n\nQuestion: Does X Granger-cause Y?\n(Do past values of X help predict Y beyond Y's own history?)",
         result=n,

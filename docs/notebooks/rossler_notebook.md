@@ -362,5 +362,5 @@ PRISM_DOMAIN=rossler python -m prism.runners.geometry --cohort
 ## References
 
 1. Rössler, O.E. (1976). "An equation for continuous chaos". Physics Letters A. 57 (5): 397–398.
-2. Sprott, J. C. (2003). Chaos and Time-Series Analysis. Oxford University Press.
+2. Sprott, J. C. (2003). Chaos and Signal Topology Analysis. Oxford University Press.
 3. Letellier, C., Dutertre, P., & Maheu, B. (1995). "Unstable periodic orbits and templates of the Rössler system". Chaos. 5 (1): 271-282.

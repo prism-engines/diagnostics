@@ -2,7 +2,7 @@
 
 **`pip install prism-engine`**
 
-This is the core Python package for PRISM behavioral geometry analysis.
+This is the core Python package for PRISM behavioral signal topology analysis.
 
 ---
 

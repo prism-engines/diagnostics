@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document validates PRISM against numerical PDE simulation data from "The Well" dataset (PolymathicAI, NeurIPS 2024). The Gray-Scott reaction-diffusion system produces six distinct pattern regimes, providing a ground truth for testing whether PRISM can distinguish dynamical regimes from spatially-averaged time series.
+This document validates PRISM against numerical PDE simulation data from "The Well" dataset (PolymathicAI, NeurIPS 2024). The Gray-Scott reaction-diffusion system produces six distinct pattern regimes, providing a ground truth for testing whether PRISM can distinguish dynamical regimes from spatially-averaged signal topology.
 
 ## Data Source
 
@@ -83,7 +83,7 @@ From each 128×128 concentration field, we extract the **spatial mean** at each 
 A_mean(t) = (1/N²) Σᵢⱼ A(i,j,t)
 ```
 
-This reduces the 2D field to a 1D time series suitable for PRISM analysis.
+This reduces the 2D field to a 1D signal topology suitable for PRISM analysis.
 
 ---
 
@@ -152,7 +152,7 @@ This reduces the 2D field to a 1D time series suitable for PRISM analysis.
 
 ## 5. Conclusions
 
-PRISM successfully distinguishes Gray-Scott pattern regimes from spatially-averaged time series:
+PRISM successfully distinguishes Gray-Scott pattern regimes from spatially-averaged signal topology:
 
 | Test | Result | Evidence |
 |------|--------|----------|
@@ -203,7 +203,7 @@ PRISM successfully distinguishes Gray-Scott pattern regimes from spatially-avera
 ```
 data/the_well/
 ├── raw/
-│   ├── observations.parquet   # Spatial mean time series
+│   ├── observations.parquet   # Spatial mean signal topology
 │   └── indicators.parquet     # Regime labels
 ├── config/
 │   ├── cohorts.parquet

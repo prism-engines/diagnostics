@@ -245,7 +245,7 @@ def characterize_indicator_inline(
 
     Args:
         indicator_id: The indicator to characterize
-        values: Time series values (full history, will be cleaned of NaN)
+        values: Signal values (full history, will be cleaned of NaN)
         dates: Optional observation dates
 
     Returns:

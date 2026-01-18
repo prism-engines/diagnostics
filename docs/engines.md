@@ -1,6 +1,6 @@
 # PRISM Engine Reference
 
-> Mathematical measurement engines for time-series analysis.
+> Mathematical measurement engines for signal topology analysis.
 
 ---
 
@@ -23,7 +23,7 @@ PRISM engines divide into three classes based on what they measure and how:
 │   (Intrinsic)                 (Relational)               (Temporal)      │
 │   ─────────────               ────────────               ─────────────   │
 │                                                                          │
-│   Series A ──► [Hurst]        Behavioral     ──► [PCA]   Time Series    │
+│   Series A ──► [Hurst]        Behavioral     ──► [PCA]   Signal Topology    │
 │   Series B ──► [Entropy]       Vectors       ──► [MST]    + History     │
 │   Series C ──► [GARCH]          ↓            ──► [LOF]       ↓          │
 │        ↓                    Static Structure            ──► [Granger]   │
@@ -40,7 +40,7 @@ PRISM engines divide into three classes based on what they measure and how:
 
 ## Vector Engines
 
-**Purpose:** Measure intrinsic properties of individual time series.
+**Purpose:** Measure intrinsic properties of individual signal topology.
 
 Each vector engine answers: *"What is this series doing on its own?"*
 
@@ -64,7 +64,7 @@ These measurements are **intrinsic** — they don't depend on other indicators a
 
 **Question:** Does this series trend, mean-revert, or walk randomly?
 
-**Why it matters:** A trending series (H > 0.5) behaves fundamentally differently from a mean-reverting one (H < 0.5). This determines whether momentum or reversion strategies apply, and reveals the fractal nature of the time series.
+**Why it matters:** A trending series (H > 0.5) behaves fundamentally differently from a mean-reverting one (H < 0.5). This determines whether momentum or reversion strategies apply, and reveals the fractal nature of the signal topology.
 
 #### Formula: Rescaled Range Method
 
@@ -130,7 +130,7 @@ where:
 
 **Question:** Does uncertainty cluster in time? Are calm and turbulent periods distinct?
 
-**Why it matters:** GARCH captures the empirical fact that large moves cluster together (volatility clustering). This is essential for risk measurement and reveals the heteroskedastic nature of many time series.
+**Why it matters:** GARCH captures the empirical fact that large moves cluster together (volatility clustering). This is essential for risk measurement and reveals the heteroskedastic nature of many signal topology.
 
 #### Formula: GARCH(1,1) Model
 
@@ -664,7 +664,7 @@ $$\text{similarity} = \frac{1}{1 + DTW(X,Y)}$$
 
 **Question:** What are the dominant dynamic patterns across indicators?
 
-**Why it matters:** DMD extracts oscillation frequencies and growth/decay rates from multivariate time series. It approximates the underlying linear operator governing system dynamics, revealing modes that may not be apparent from individual series analysis.
+**Why it matters:** DMD extracts oscillation frequencies and growth/decay rates from multivariate signal topology. It approximates the underlying linear operator governing system dynamics, revealing modes that may not be apparent from individual series analysis.
 
 #### Formula
 
@@ -793,7 +793,7 @@ Raw Observations
 
 ### Why Three Tiers?
 
-1. **Vector engines** produce behavioral descriptors that compress each time series into a fixed-dimensional representation.
+1. **Vector engines** produce behavioral descriptors that compress each signal topology into a fixed-dimensional representation.
 
 2. **Geometry engines** analyze relationships between these descriptors without needing the original time ordering — they see indicators as points in behavioral space.
 
@@ -803,7 +803,7 @@ Raw Observations
 
 ## References
 
-- Bandt & Pompe (2002). Permutation entropy: A natural complexity measure for time series.
+- Bandt & Pompe (2002). Permutation entropy: A natural complexity measure for signal topology.
 - Bollerslev (1986). Generalized autoregressive conditional heteroskedasticity.
 - Engle & Granger (1987). Co-integration and error correction.
 - Mallat (1989). A theory for multiresolution signal decomposition.
