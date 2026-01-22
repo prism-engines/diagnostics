@@ -34,6 +34,10 @@ catboost>=1.2.0         # Categorical boosting
 requests>=2.28.0
 pyyaml>=6.0
 
+# Notebooks and Documentation
+jupyterlab>=4.0.0       # Interactive notebooks for derivations
+nbconvert>=7.0.0        # Export notebooks to HTML/PDF/Markdown
+
 # Development (optional but recommended)
 black>=23.0.0
 ruff>=0.1.0

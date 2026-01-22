@@ -164,6 +164,61 @@ ENTRY_POINT_REGISTRY: Dict[str, Dict[str, Any]] = {
         'inputs': ['geometry/cohort.parquet'],
         'outputs': ['state/cohort.parquet'],
     },
+
+    # ==========================================================================
+    # ML ACCELERATOR (prism.entry_points.ml package)
+    # ==========================================================================
+    'ml_features': {
+        'module': 'prism.entry_points.ml.features',
+        'goal': 'Generate ML-ready feature tables from PRISM outputs',
+        'inputs': ['vector.parquet', 'geometry.parquet', 'state.parquet'],
+        'outputs': ['ml_features.parquet'],
+    },
+
+    'ml_train': {
+        'module': 'prism.entry_points.ml.train',
+        'goal': 'Train ML models (XGBoost, CatBoost, LightGBM, etc.)',
+        'inputs': ['ml_features.parquet'],
+        'outputs': ['ml_model.pkl', 'ml_results.parquet', 'ml_importance.parquet'],
+    },
+
+    'ml_predict': {
+        'module': 'prism.entry_points.ml.predict',
+        'goal': 'Run predictions on new data using trained model',
+        'inputs': ['ml_model.pkl', 'ml_features.parquet'],
+        'outputs': ['ml_predictions.parquet'],
+    },
+
+    'ml_ablation': {
+        'module': 'prism.entry_points.ml.ablation',
+        'goal': 'Feature ablation studies to identify key predictors',
+        'inputs': ['ml_features.parquet'],
+        'outputs': ['ml_ablation_results.parquet'],
+    },
+
+    'ml_baseline': {
+        'module': 'prism.entry_points.ml.baseline',
+        'goal': 'Baseline XGBoost model without PRISM features',
+        'inputs': ['observations.parquet'],
+        'outputs': ['baseline_model.pkl', 'baseline_results.parquet'],
+    },
+
+    'ml_benchmark': {
+        'module': 'prism.entry_points.ml.benchmark',
+        'goal': 'Compare PRISM vs baseline model performance',
+        'inputs': ['ml_results.parquet', 'baseline_results.parquet'],
+        'outputs': ['benchmark_report.parquet'],
+    },
+
+    # ==========================================================================
+    # SUMMARY & VISUALIZATION
+    # ==========================================================================
+    'summarize': {
+        'module': 'prism.entry_points.summarize',
+        'goal': 'Detect critical moments (T0, T1, T2) and generate slider summary for visualization',
+        'inputs': ['geometry.parquet', 'vector.parquet', 'state.parquet'],
+        'outputs': ['summary/slider_summary.parquet', 'summary/detection_report.json'],
+    },
 }
 
 

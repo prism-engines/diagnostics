@@ -6,32 +6,43 @@ Entry points are the execution layer of PRISM. Each entry point computes measure
 
 ---
 
-## Architecture
+## Directory Structure
 
 ```
-prism/entry_points/           # CLI entry points (python -m prism.entry_points.*)
+prism/entry_points/
+├── __init__.py              # Entry point registry
+├── README.md                # This file
+│
 ├── fetch.py                 # Data fetching to Parquet
-├── characterize.py          # 6-axis signal classification
-├── signal_vector.py      # Layer 1: Vector metrics (51 per signal)
-├── laplace.py               # Layer 2: Laplace field computation
-├── laplace_pairwise.py      # Layer 2: Pairwise geometry (vectorized)
-├── geometry.py              # Layer 3: Cohort geometry + modes + wavelet
-├── state.py                 # Layer 4: Query-time state derivation
-├── cohort_state.py          # Layer 4: Cohort-level state
-├── mode_geometry.py         # Behavioral mode geometry analysis
-├── dynamic_vector.py        # Dynamical systems vector computation
-├── dynamic_state.py         # Dynamical systems state computation
-├── generate_dynamical.py    # Generate test data (Lorenz, Rossler, etc.)
-├── generate_pendulum_regime.py  # Generate pendulum regime data
-├── physics.py               # Physics validation (conservation laws)
-└── hybrid.py                # PRISM + ML supervised bridge
-
-prism/modules/               # Reusable computation (NOT entry points)
-├── characterize.py          # Inline characterization
-├── laplace.py               # Laplace field computation
-├── modes.py                 # Mode discovery from signatures
-├── wavelet_microscope.py    # Frequency-band degradation
-└── prefilter.py             # O(n) Laplacian pre-filter
+├── cohort.py                # Cohort discovery
+├── vector.py                # Layer 1: Vector metrics (51 per signal)
+├── geometry.py              # Layer 2: Cohort geometry + modes + wavelet
+├── state.py                 # Layer 3: Query-time state derivation
+├── load.py                  # Data loading utilities
+├── validate_schema.py       # Schema validation
+│
+├── ml/                      # ML Accelerator entry points
+│   ├── __init__.py
+│   ├── features.py          # ML feature generation
+│   ├── train.py             # Model training (XGBoost, CatBoost, etc.)
+│   ├── predict.py           # Run predictions
+│   ├── ablation.py          # Feature ablation studies
+│   ├── baseline.py          # Baseline XGBoost model
+│   └── benchmark.py         # PRISM vs baseline comparison
+│
+├── derivations/             # Mathematical derivation entry points
+│   └── ...
+│
+├── testing/                 # Testing utilities
+│   └── ...
+│
+└── _archive/                # Archived/deprecated entry points
+    ├── cohort_v2.py
+    ├── cohort_v3.py
+    ├── cohort_v4.py
+    ├── geometry_apply.py
+    ├── geometry_learn.py
+    └── prism_vs_baseline_v2.py
 ```
 
 **Key Principle:** Modules are building blocks imported by entry points, not run directly.
@@ -43,69 +54,63 @@ prism/modules/               # Reusable computation (NOT entry points)
 ### Core Pipeline
 
 ```bash
-# Layer 0: Data Ingestion
-python -m prism.db.fetch --cmapss
-python -m prism.db.fetch --femto
-python -m prism.db.fetch --hydraulic
+# 1. Fetch data
+python -m prism.entry_points.fetch cmapss
 
-# Layer 1: Vector Computation
-python -m prism.entry_points.signal_vector --domain cmapss
+# 2. Compute vector metrics
+python -m prism.entry_points.signal_vector
 
-# Layer 2: Laplace Field
-python -m prism.entry_points.laplace --domain cmapss
+# 3. Compute geometry
+python -m prism.entry_points.geometry
 
-# Layer 2: Pairwise Geometry
-python -m prism.entry_points.laplace_pairwise --domain cmapss
-
-# Layer 3: Cohort Geometry (includes modes + wavelet)
-python -m prism.entry_points.geometry --domain cmapss
-
-# Layer 4: State
-python -m prism.entry_points.state --domain cmapss
+# 4. Compute state
+python -m prism.entry_points.state
 ```
 
-### Dynamical Systems Validation
+### ML Accelerator
 
 ```bash
-# Generate test data
-python -m prism.entry_points.generate_dynamical --system lorenz
-python -m prism.entry_points.generate_pendulum_regime
+# Generate ML features
+python -m prism.entry_points.ml.features --target RUL
 
-# Compute vectors
-python -m prism.entry_points.dynamic_vector
+# Train model
+python -m prism.entry_points.ml.train --model xgboost
 
-# Validate physics
-python -m prism.entry_points.physics
-```
+# Run predictions
+python -m prism.entry_points.ml.predict
 
-### Supervised Learning Bridge
+# Feature ablation
+python -m prism.entry_points.ml.ablation
 
-```bash
-# PRISM features + ML models
-python -m prism.entry_points.hybrid --domain cmapss --model xgboost
+# Baseline comparison
+python -m prism.entry_points.ml.baseline
+python -m prism.entry_points.ml.benchmark
 ```
 
 ---
 
-## Entry Points Summary (15)
+## Entry Points Summary
+
+### Core Pipeline
 
 | Entry Point | Layer | Purpose |
 |-------------|-------|---------|
 | `fetch.py` | 0 | Data ingestion from fetchers |
-| `characterize.py` | 0.5 | 6-axis dynamical classification |
-| `signal_vector.py` | 1 | 51 behavioral metrics per signal |
-| `laplace.py` | 2 | Laplace field computation |
-| `laplace_pairwise.py` | 2 | Pairwise geometry (vectorized) |
-| `geometry.py` | 3 | Cohort geometry + modes + wavelet |
-| `state.py` | 4 | Query-time state derivation |
-| `cohort_state.py` | 4 | Cohort-level state computation |
-| `mode_geometry.py` | 3 | Behavioral mode geometry |
-| `dynamic_vector.py` | 1 | Dynamical systems vectors |
-| `dynamic_state.py` | 4 | Dynamical systems state |
-| `generate_dynamical.py` | — | Generate Lorenz/Rossler test data |
-| `generate_pendulum_regime.py` | — | Generate pendulum regime data |
-| `physics.py` | 5 | Conservation law validation |
-| `hybrid.py` | — | PRISM + ML supervised bridge |
+| `cohort.py` | 0.5 | Cohort discovery |
+| `vector.py` | 1 | 51 behavioral metrics per signal |
+| `geometry.py` | 2 | Cohort geometry + modes + wavelet |
+| `state.py` | 3 | Query-time state derivation |
+
+### ML Accelerator
+
+| Entry Point | Purpose |
+|-------------|---------|
+| `ml/features.py` | Generate ML-ready feature tables |
+| `ml/train.py` | Train models (XGBoost, CatBoost, LightGBM) |
+| `ml/predict.py` | Run predictions on new data |
+| `ml/ablation.py` | Feature ablation studies |
+| `ml/baseline.py` | Baseline model without PRISM features |
+| `ml/benchmark.py` | Compare PRISM vs baseline performance |
 
 ---
 
@@ -113,24 +118,26 @@ python -m prism.entry_points.hybrid --domain cmapss --model xgboost
 
 | Option | Description |
 |--------|-------------|
-| `--domain NAME` | Target domain (cmapss, femto, hydraulic, tep, etc.) |
 | `--testing` | Enable testing mode (allows limiting flags) |
 | `--force` | Recompute all (clear progress) |
-| `--cohort NAME` | Filter to specific cohort |
-| `--workers N` | Parallel workers (Parquet has no lock issues) |
+| `--limit N` | [TESTING] Max observations per signal |
+| `--signal x,y` | [TESTING] Only process specific signals |
+| `--adaptive` | Auto-detect window size from data |
 
 ---
 
 ## Storage
 
-All storage uses Parquet files (no database):
+All storage uses Parquet files in `data/`:
 
 ```
-data/{domain}/
-├── raw/                    # Layer 0: Raw observations
-├── vector/                 # Layer 1-2: Vector metrics + Laplace field
-├── geometry/               # Layer 3: Structural snapshots
-├── state/                  # Layer 4: Temporal dynamics
-├── physics/                # Physics validation results
-└── filter/                 # Redundancy analysis
+data/
+├── observations.parquet     # Raw sensor data
+├── vector.parquet           # Behavioral metrics
+├── geometry.parquet         # Structural snapshots
+├── state.parquet            # Temporal dynamics
+├── cohorts.parquet          # Entity groupings
+├── ml_features.parquet      # ML-ready features
+├── ml_results.parquet       # Model predictions
+└── ml_model.pkl             # Trained model
 ```

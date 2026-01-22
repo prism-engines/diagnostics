@@ -124,6 +124,17 @@ from orthon._internal.engines import (
 from orthon._internal.engines import BaseEngine, EngineResult, EngineMetadata
 
 # =============================================================================
+# Report Generation
+# =============================================================================
+from orthon.report import (
+    compare_cohorts,
+    generate_report,
+    ComparisonResult,
+    PairwiseDivergence,
+    TemporalDivergence,
+)
+
+# =============================================================================
 # Public API
 # =============================================================================
 __all__ = [
@@ -198,4 +209,10 @@ __all__ = [
     "BaseEngine",
     "EngineResult",
     "EngineMetadata",
+    # Report generation
+    "compare_cohorts",
+    "generate_report",
+    "ComparisonResult",
+    "PairwiseDivergence",
+    "TemporalDivergence",
 ]
