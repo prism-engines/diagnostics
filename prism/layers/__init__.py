@@ -13,9 +13,45 @@ ORTHON Four-Layer Framework:
 
 Rule: If you see `np.` or `scipy.` in a layer file, STOP.
       That computation belongs in an engine.
+
+Usage:
+    from prism.layers import (
+        SignalTypologyLayer,
+        BehavioralGeometryLayer,
+        DynamicalSystemsLayer,
+        CausalMechanicsLayer,
+    )
 """
 
+# Layer 1: Signal Typology
 from .signal_typology import SignalTypologyLayer
+
+# Layer 2: Behavioral Geometry
+from .behavioral_geometry import (
+    BehavioralGeometryLayer,
+    BehavioralGeometryOutput,
+    GeometryVector,
+    GeometryTypology,
+    analyze_geometry,
+    TopologyClass,
+    StabilityClass,
+    LeadershipClass,
+)
+
+# Layer 3: Dynamical Systems
+from .dynamical_systems import (
+    DynamicalSystemsLayer,
+    DynamicalSystemsOutput,
+    DynamicsVector,
+    DynamicsTypology,
+    analyze_dynamics,
+    RegimeClass,
+    StabilityClass as DynamicsStabilityClass,
+    TrajectoryClass,
+    AttractorClass,
+)
+
+# Layer 4: Causal Mechanics
 from .causal_mechanics import (
     CausalMechanicsLayer,
     CausalMechanicsOutput,
@@ -27,29 +63,34 @@ from .causal_mechanics import (
     FlowClass,
     OrbitClass,
     DominanceClass,
-    # Backwards compatibility
-    SystemPhysicsLayer,
-    SystemPhysicsOutput,
-    PhysicsVector,
-    PhysicsTypology,
-    analyze_physics,
-)
-from .behavioral_geometry import (
-    BehavioralGeometryLayer,
-    BehavioralGeometryOutput,
-    GeometryVector,
-    GeometryTypology,
-    analyze_geometry,
-    TopologyClass,
-    StabilityClass,
-    LeadershipClass
 )
 
 __all__ = [
-    # Signal Typology
+    # Layer 1: Signal Typology
     'SignalTypologyLayer',
 
-    # Causal Mechanics (new names)
+    # Layer 2: Behavioral Geometry
+    'BehavioralGeometryLayer',
+    'BehavioralGeometryOutput',
+    'GeometryVector',
+    'GeometryTypology',
+    'analyze_geometry',
+    'TopologyClass',
+    'StabilityClass',
+    'LeadershipClass',
+
+    # Layer 3: Dynamical Systems
+    'DynamicalSystemsLayer',
+    'DynamicalSystemsOutput',
+    'DynamicsVector',
+    'DynamicsTypology',
+    'analyze_dynamics',
+    'RegimeClass',
+    'DynamicsStabilityClass',
+    'TrajectoryClass',
+    'AttractorClass',
+
+    # Layer 4: Causal Mechanics
     'CausalMechanicsLayer',
     'CausalMechanicsOutput',
     'MechanicsVector',
@@ -60,21 +101,4 @@ __all__ = [
     'FlowClass',
     'OrbitClass',
     'DominanceClass',
-
-    # Causal Mechanics (backwards compatibility)
-    'SystemPhysicsLayer',
-    'SystemPhysicsOutput',
-    'PhysicsVector',
-    'PhysicsTypology',
-    'analyze_physics',
-
-    # Behavioral Geometry
-    'BehavioralGeometryLayer',
-    'BehavioralGeometryOutput',
-    'GeometryVector',
-    'GeometryTypology',
-    'analyze_geometry',
-    'TopologyClass',
-    'StabilityClass',
-    'LeadershipClass',
 ]
