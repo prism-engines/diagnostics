@@ -173,9 +173,10 @@ class PhysicalQuantity(Enum):
 
 
 # =============================================================================
-# UNITS
+# UNITS - Full Unit Algebra System
 # =============================================================================
 
+# Standard units for physical quantities (SI)
 STANDARD_UNITS = {
     PhysicalQuantity.POSITION: "m",
     PhysicalQuantity.VELOCITY: "m/s",
@@ -189,6 +190,456 @@ STANDARD_UNITS = {
     PhysicalQuantity.VOLTAGE: "V",
     PhysicalQuantity.CURRENT: "A",
 }
+
+
+@dataclass
+class UnitSpec:
+    """
+    Unit specification with dimensional analysis.
+
+    Tracks base SI dimensions: [M, L, T, Θ, I, N, J]
+    - M: mass (kg)
+    - L: length (m)
+    - T: time (s)
+    - Θ: temperature (K)
+    - I: electric current (A)
+    - N: amount of substance (mol)
+    - J: luminous intensity (cd)
+
+    Examples:
+        velocity = UnitSpec.parse("m/s")       # [0, 1, -1, 0, 0, 0, 0]
+        force = UnitSpec.parse("N")            # [1, 1, -2, 0, 0, 0, 0] = kg⋅m/s²
+        energy = velocity * velocity * mass    # [1, 2, -2, 0, 0, 0, 0] = J
+    """
+    # Dimensional exponents [M, L, T, Θ, I, N, J]
+    dimensions: Tuple[int, int, int, int, int, int, int]
+    symbol: str = ""  # Display symbol (e.g., "m/s", "N", "J")
+
+    # Common unit conversions to SI
+    scale: float = 1.0  # Multiplier to convert to SI base units
+    offset: float = 0.0  # Offset for temperature conversions (C, F)
+
+    def __post_init__(self):
+        if isinstance(self.dimensions, list):
+            self.dimensions = tuple(self.dimensions)
+
+    @classmethod
+    def dimensionless(cls) -> 'UnitSpec':
+        """Return dimensionless unit (pure number)."""
+        return cls(dimensions=(0, 0, 0, 0, 0, 0, 0), symbol="")
+
+    @classmethod
+    def parse(cls, unit_str: str) -> 'UnitSpec':
+        """
+        Parse unit string into UnitSpec.
+
+        Supports common formats:
+            SI: m, kg, s, K, A, mol, cd
+            Derived: m/s, m/s², N, J, W, Pa, Hz
+            Imperial: ft, lb, °F, °C
+            Compound: kg⋅m/s², N⋅m, J/K
+        """
+        if not unit_str or unit_str.lower() in ('', 'none', 'unitless', '1'):
+            return cls.dimensionless()
+
+        # Normalize input
+        unit_str = unit_str.strip()
+
+        # Check known units first
+        known = KNOWN_UNITS.get(unit_str)
+        if known:
+            return known
+
+        # Try to parse compound units
+        return cls._parse_compound(unit_str)
+
+    @classmethod
+    def _parse_compound(cls, unit_str: str) -> 'UnitSpec':
+        """Parse compound unit like kg⋅m/s² or N⋅m."""
+        # Split by / for numerator/denominator
+        if '/' in unit_str:
+            parts = unit_str.split('/')
+            if len(parts) == 2:
+                num = cls.parse(parts[0]) if parts[0] else cls.dimensionless()
+                den = cls.parse(parts[1])
+                return num / den
+
+        # Split by ⋅ or * for multiplication
+        for sep in ['⋅', '*', '·']:
+            if sep in unit_str:
+                parts = unit_str.split(sep)
+                result = cls.dimensionless()
+                for part in parts:
+                    result = result * cls.parse(part.strip())
+                return result
+
+        # Handle powers like s², m³
+        for i, char in enumerate(unit_str):
+            if char in '²³⁴⁵⁶⁷⁸⁹' or char.isdigit():
+                base = unit_str[:i]
+                exp_str = unit_str[i:]
+                # Convert superscript to number
+                exp = _parse_exponent(exp_str)
+                base_unit = cls.parse(base)
+                return base_unit ** exp
+
+        # Unknown unit - return dimensionless with warning
+        return cls(dimensions=(0, 0, 0, 0, 0, 0, 0), symbol=f"?{unit_str}")
+
+    def __mul__(self, other: 'UnitSpec') -> 'UnitSpec':
+        """Multiply units: m * s⁻¹ = m/s"""
+        new_dims = tuple(a + b for a, b in zip(self.dimensions, other.dimensions))
+        new_symbol = f"{self.symbol}⋅{other.symbol}" if self.symbol and other.symbol else (self.symbol or other.symbol)
+        return UnitSpec(dimensions=new_dims, symbol=new_symbol, scale=self.scale * other.scale)
+
+    def __truediv__(self, other: 'UnitSpec') -> 'UnitSpec':
+        """Divide units: m / s = m/s"""
+        new_dims = tuple(a - b for a, b in zip(self.dimensions, other.dimensions))
+        new_symbol = f"{self.symbol}/{other.symbol}" if other.symbol else self.symbol
+        return UnitSpec(dimensions=new_dims, symbol=new_symbol, scale=self.scale / other.scale)
+
+    def __pow__(self, exp: int) -> 'UnitSpec':
+        """Raise unit to power: (m/s)² = m²/s²"""
+        new_dims = tuple(d * exp for d in self.dimensions)
+        if exp == 2:
+            new_symbol = f"{self.symbol}²"
+        elif exp == 3:
+            new_symbol = f"{self.symbol}³"
+        elif exp == -1:
+            new_symbol = f"1/{self.symbol}"
+        else:
+            new_symbol = f"({self.symbol})^{exp}"
+        return UnitSpec(dimensions=new_dims, symbol=new_symbol, scale=self.scale ** exp)
+
+    def __eq__(self, other: 'UnitSpec') -> bool:
+        """Units are equal if dimensions match."""
+        return self.dimensions == other.dimensions
+
+    def is_compatible(self, other: 'UnitSpec') -> bool:
+        """Check if units are dimensionally compatible (can be added/compared)."""
+        return self.dimensions == other.dimensions
+
+    def is_dimensionless(self) -> bool:
+        """Check if unit is dimensionless."""
+        return all(d == 0 for d in self.dimensions)
+
+    def to_si_symbol(self) -> str:
+        """Get standard SI symbol for the dimensions."""
+        # Check if matches known derived unit
+        for symbol, unit in KNOWN_UNITS.items():
+            if unit.dimensions == self.dimensions:
+                return symbol
+
+        # Build from base units
+        M, L, T, Θ, I, N, J = self.dimensions
+        parts_num = []
+        parts_den = []
+
+        base_symbols = [('kg', M), ('m', L), ('s', T), ('K', Θ), ('A', I), ('mol', N), ('cd', J)]
+
+        for sym, exp in base_symbols:
+            if exp > 0:
+                if exp == 1:
+                    parts_num.append(sym)
+                else:
+                    parts_num.append(f"{sym}{'²' if exp == 2 else '³' if exp == 3 else f'^{exp}'}")
+            elif exp < 0:
+                exp = -exp
+                if exp == 1:
+                    parts_den.append(sym)
+                else:
+                    parts_den.append(f"{sym}{'²' if exp == 2 else '³' if exp == 3 else f'^{exp}'}")
+
+        if not parts_num and not parts_den:
+            return ""
+        elif not parts_den:
+            return "⋅".join(parts_num)
+        elif not parts_num:
+            return "1/" + "⋅".join(parts_den)
+        else:
+            return "⋅".join(parts_num) + "/" + "⋅".join(parts_den)
+
+    def __str__(self) -> str:
+        return self.symbol or self.to_si_symbol() or "dimensionless"
+
+    def __repr__(self) -> str:
+        return f"UnitSpec({self.dimensions}, '{self.symbol}')"
+
+
+def _parse_exponent(s: str) -> int:
+    """Parse exponent string like ², ³, ^2, 2."""
+    superscript_map = {'²': 2, '³': 3, '⁴': 4, '⁵': 5, '⁶': 6, '⁷': 7, '⁸': 8, '⁹': 9, '⁰': 0, '¹': 1}
+
+    if s in superscript_map:
+        return superscript_map[s]
+
+    if s.startswith('^'):
+        return int(s[1:])
+
+    # Handle negative exponents
+    if s.startswith('⁻'):
+        return -_parse_exponent(s[1:])
+
+    try:
+        return int(s)
+    except ValueError:
+        return 1
+
+
+# =============================================================================
+# KNOWN UNITS REGISTRY
+# =============================================================================
+
+# Dimensions: [M, L, T, Θ, I, N, J]
+#              kg  m  s  K  A mol cd
+
+KNOWN_UNITS: Dict[str, UnitSpec] = {
+    # Base SI units
+    "kg": UnitSpec((1, 0, 0, 0, 0, 0, 0), "kg"),
+    "m": UnitSpec((0, 1, 0, 0, 0, 0, 0), "m"),
+    "s": UnitSpec((0, 0, 1, 0, 0, 0, 0), "s"),
+    "K": UnitSpec((0, 0, 0, 1, 0, 0, 0), "K"),
+    "A": UnitSpec((0, 0, 0, 0, 1, 0, 0), "A"),
+    "mol": UnitSpec((0, 0, 0, 0, 0, 1, 0), "mol"),
+    "cd": UnitSpec((0, 0, 0, 0, 0, 0, 1), "cd"),
+
+    # Derived SI units
+    "N": UnitSpec((1, 1, -2, 0, 0, 0, 0), "N"),           # Newton = kg⋅m/s²
+    "J": UnitSpec((1, 2, -2, 0, 0, 0, 0), "J"),           # Joule = kg⋅m²/s²
+    "W": UnitSpec((1, 2, -3, 0, 0, 0, 0), "W"),           # Watt = kg⋅m²/s³
+    "Pa": UnitSpec((1, -1, -2, 0, 0, 0, 0), "Pa"),        # Pascal = kg/(m⋅s²)
+    "Hz": UnitSpec((0, 0, -1, 0, 0, 0, 0), "Hz"),         # Hertz = 1/s
+    "V": UnitSpec((1, 2, -3, 0, -1, 0, 0), "V"),          # Volt = kg⋅m²/(A⋅s³)
+    "Ω": UnitSpec((1, 2, -3, 0, -2, 0, 0), "Ω"),          # Ohm = kg⋅m²/(A²⋅s³)
+    "C": UnitSpec((0, 0, 1, 0, 1, 0, 0), "C"),            # Coulomb = A⋅s
+    "F": UnitSpec((-1, -2, 4, 0, 2, 0, 0), "F"),          # Farad = A²⋅s⁴/(kg⋅m²)
+    "T": UnitSpec((1, 0, -2, 0, -1, 0, 0), "T"),          # Tesla = kg/(A⋅s²)
+
+    # Common velocity units
+    "m/s": UnitSpec((0, 1, -1, 0, 0, 0, 0), "m/s"),
+    "km/h": UnitSpec((0, 1, -1, 0, 0, 0, 0), "km/h", scale=1/3.6),
+    "mph": UnitSpec((0, 1, -1, 0, 0, 0, 0), "mph", scale=0.44704),
+    "ft/s": UnitSpec((0, 1, -1, 0, 0, 0, 0), "ft/s", scale=0.3048),
+
+    # Acceleration
+    "m/s²": UnitSpec((0, 1, -2, 0, 0, 0, 0), "m/s²"),
+    "m/s2": UnitSpec((0, 1, -2, 0, 0, 0, 0), "m/s²"),     # ASCII variant
+    "ft/s²": UnitSpec((0, 1, -2, 0, 0, 0, 0), "ft/s²", scale=0.3048),
+    "g": UnitSpec((0, 1, -2, 0, 0, 0, 0), "g", scale=9.80665),  # Standard gravity
+
+    # Length variants
+    "km": UnitSpec((0, 1, 0, 0, 0, 0, 0), "km", scale=1000),
+    "cm": UnitSpec((0, 1, 0, 0, 0, 0, 0), "cm", scale=0.01),
+    "mm": UnitSpec((0, 1, 0, 0, 0, 0, 0), "mm", scale=0.001),
+    "ft": UnitSpec((0, 1, 0, 0, 0, 0, 0), "ft", scale=0.3048),
+    "in": UnitSpec((0, 1, 0, 0, 0, 0, 0), "in", scale=0.0254),
+    "mi": UnitSpec((0, 1, 0, 0, 0, 0, 0), "mi", scale=1609.344),
+
+    # Mass variants
+    "g": UnitSpec((1, 0, 0, 0, 0, 0, 0), "g", scale=0.001),
+    "lb": UnitSpec((1, 0, 0, 0, 0, 0, 0), "lb", scale=0.453592),
+    "lbm": UnitSpec((1, 0, 0, 0, 0, 0, 0), "lbm", scale=0.453592),
+
+    # Force variants
+    "lbf": UnitSpec((1, 1, -2, 0, 0, 0, 0), "lbf", scale=4.44822),
+    "kN": UnitSpec((1, 1, -2, 0, 0, 0, 0), "kN", scale=1000),
+    "dyn": UnitSpec((1, 1, -2, 0, 0, 0, 0), "dyn", scale=1e-5),
+
+    # Pressure variants
+    "kPa": UnitSpec((1, -1, -2, 0, 0, 0, 0), "kPa", scale=1000),
+    "MPa": UnitSpec((1, -1, -2, 0, 0, 0, 0), "MPa", scale=1e6),
+    "bar": UnitSpec((1, -1, -2, 0, 0, 0, 0), "bar", scale=1e5),
+    "atm": UnitSpec((1, -1, -2, 0, 0, 0, 0), "atm", scale=101325),
+    "psi": UnitSpec((1, -1, -2, 0, 0, 0, 0), "psi", scale=6894.76),
+    "mmHg": UnitSpec((1, -1, -2, 0, 0, 0, 0), "mmHg", scale=133.322),
+
+    # Energy variants
+    "kJ": UnitSpec((1, 2, -2, 0, 0, 0, 0), "kJ", scale=1000),
+    "MJ": UnitSpec((1, 2, -2, 0, 0, 0, 0), "MJ", scale=1e6),
+    "cal": UnitSpec((1, 2, -2, 0, 0, 0, 0), "cal", scale=4.184),
+    "kcal": UnitSpec((1, 2, -2, 0, 0, 0, 0), "kcal", scale=4184),
+    "BTU": UnitSpec((1, 2, -2, 0, 0, 0, 0), "BTU", scale=1055.06),
+    "eV": UnitSpec((1, 2, -2, 0, 0, 0, 0), "eV", scale=1.602e-19),
+    "kWh": UnitSpec((1, 2, -2, 0, 0, 0, 0), "kWh", scale=3.6e6),
+
+    # Power variants
+    "kW": UnitSpec((1, 2, -3, 0, 0, 0, 0), "kW", scale=1000),
+    "MW": UnitSpec((1, 2, -3, 0, 0, 0, 0), "MW", scale=1e6),
+    "hp": UnitSpec((1, 2, -3, 0, 0, 0, 0), "hp", scale=745.7),
+
+    # Temperature (with offset for conversion)
+    "°C": UnitSpec((0, 0, 0, 1, 0, 0, 0), "°C", offset=273.15),
+    "C": UnitSpec((0, 0, 0, 1, 0, 0, 0), "°C", offset=273.15),
+    "°F": UnitSpec((0, 0, 0, 1, 0, 0, 0), "°F", scale=5/9, offset=255.372),
+    "F": UnitSpec((0, 0, 0, 1, 0, 0, 0), "°F", scale=5/9, offset=255.372),
+
+    # Angular
+    "rad": UnitSpec((0, 0, 0, 0, 0, 0, 0), "rad"),  # Dimensionless
+    "deg": UnitSpec((0, 0, 0, 0, 0, 0, 0), "deg", scale=3.14159/180),
+    "°": UnitSpec((0, 0, 0, 0, 0, 0, 0), "°", scale=3.14159/180),
+    "rad/s": UnitSpec((0, 0, -1, 0, 0, 0, 0), "rad/s"),
+    "rpm": UnitSpec((0, 0, -1, 0, 0, 0, 0), "rpm", scale=2*3.14159/60),
+
+    # Volume
+    "m³": UnitSpec((0, 3, 0, 0, 0, 0, 0), "m³"),
+    "m3": UnitSpec((0, 3, 0, 0, 0, 0, 0), "m³"),
+    "L": UnitSpec((0, 3, 0, 0, 0, 0, 0), "L", scale=0.001),
+    "mL": UnitSpec((0, 3, 0, 0, 0, 0, 0), "mL", scale=1e-6),
+    "gal": UnitSpec((0, 3, 0, 0, 0, 0, 0), "gal", scale=0.00378541),
+    "ft³": UnitSpec((0, 3, 0, 0, 0, 0, 0), "ft³", scale=0.0283168),
+
+    # Flow rate
+    "m³/s": UnitSpec((0, 3, -1, 0, 0, 0, 0), "m³/s"),
+    "L/s": UnitSpec((0, 3, -1, 0, 0, 0, 0), "L/s", scale=0.001),
+    "L/min": UnitSpec((0, 3, -1, 0, 0, 0, 0), "L/min", scale=0.001/60),
+    "gpm": UnitSpec((0, 3, -1, 0, 0, 0, 0), "gpm", scale=6.309e-5),
+
+    # Density
+    "kg/m³": UnitSpec((1, -3, 0, 0, 0, 0, 0), "kg/m³"),
+    "kg/m3": UnitSpec((1, -3, 0, 0, 0, 0, 0), "kg/m³"),
+    "g/cm³": UnitSpec((1, -3, 0, 0, 0, 0, 0), "g/cm³", scale=1000),
+    "lb/ft³": UnitSpec((1, -3, 0, 0, 0, 0, 0), "lb/ft³", scale=16.0185),
+
+    # Viscosity
+    "Pa⋅s": UnitSpec((1, -1, -1, 0, 0, 0, 0), "Pa⋅s"),    # Dynamic viscosity
+    "m²/s": UnitSpec((0, 2, -1, 0, 0, 0, 0), "m²/s"),      # Kinematic viscosity
+    "m2/s": UnitSpec((0, 2, -1, 0, 0, 0, 0), "m²/s"),
+    "cSt": UnitSpec((0, 2, -1, 0, 0, 0, 0), "cSt", scale=1e-6),  # Centistokes
+    "cP": UnitSpec((1, -1, -1, 0, 0, 0, 0), "cP", scale=0.001),   # Centipoise
+
+    # Specific heat / entropy
+    "J/(kg⋅K)": UnitSpec((0, 2, -2, -1, 0, 0, 0), "J/(kg⋅K)"),
+    "J/(mol⋅K)": UnitSpec((1, 2, -2, -1, 0, -1, 0), "J/(mol⋅K)"),
+    "J/K": UnitSpec((1, 2, -2, -1, 0, 0, 0), "J/K"),
+
+    # Momentum
+    "kg⋅m/s": UnitSpec((1, 1, -1, 0, 0, 0, 0), "kg⋅m/s"),
+    "N⋅s": UnitSpec((1, 1, -1, 0, 0, 0, 0), "N⋅s"),  # Impulse = momentum
+
+    # Torque / moment
+    "N⋅m": UnitSpec((1, 2, -2, 0, 0, 0, 0), "N⋅m"),  # Same dimensions as energy
+    "ft⋅lb": UnitSpec((1, 2, -2, 0, 0, 0, 0), "ft⋅lb", scale=1.35582),
+
+    # Angular momentum
+    "kg⋅m²/s": UnitSpec((1, 2, -1, 0, 0, 0, 0), "kg⋅m²/s"),
+}
+
+
+# =============================================================================
+# UNIT COMPUTATION RESULTS
+# =============================================================================
+
+@dataclass
+class UnitResult:
+    """
+    Result of a computation with unit tracking.
+
+    Wraps a numeric value with its unit, enabling:
+    - Display with proper units
+    - Conversion to other compatible units
+    - Dimensional analysis validation
+    """
+    value: float
+    unit: UnitSpec
+
+    def to(self, target_unit: str) -> 'UnitResult':
+        """Convert to another compatible unit."""
+        target = UnitSpec.parse(target_unit)
+
+        if not self.unit.is_compatible(target):
+            raise ValueError(
+                f"Cannot convert {self.unit} to {target}: incompatible dimensions"
+            )
+
+        # Convert through SI
+        si_value = (self.value * self.unit.scale) + self.unit.offset
+        new_value = (si_value - target.offset) / target.scale
+
+        return UnitResult(value=new_value, unit=target)
+
+    def to_si(self) -> 'UnitResult':
+        """Convert to SI base units."""
+        si_value = (self.value * self.unit.scale) + self.unit.offset
+        si_unit = UnitSpec(
+            dimensions=self.unit.dimensions,
+            symbol=self.unit.to_si_symbol()
+        )
+        return UnitResult(value=si_value, unit=si_unit)
+
+    def __str__(self) -> str:
+        if self.unit.is_dimensionless():
+            return f"{self.value:.6g}"
+        return f"{self.value:.6g} {self.unit}"
+
+    def __repr__(self) -> str:
+        return f"UnitResult({self.value}, {self.unit})"
+
+
+# =============================================================================
+# DERIVED UNIT COMPUTATION
+# =============================================================================
+
+# Maps computation → output unit dimensions
+DERIVED_UNITS = {
+    # Dynamics (from geometry)
+    'geodesic_deviation': lambda inputs: inputs.get('velocity', UnitSpec.dimensionless()) / UnitSpec.parse('s'),
+    'acceleration': lambda inputs: inputs.get('velocity', UnitSpec.dimensionless()) / UnitSpec.parse('s'),
+
+    # Physics
+    'kinetic_energy': lambda inputs: inputs.get('mass', UnitSpec.parse('kg')) * (inputs.get('velocity', UnitSpec.parse('m/s')) ** 2),
+    'potential_energy': lambda inputs: inputs.get('spring_constant', UnitSpec.parse('N/m')) * (inputs.get('position', UnitSpec.parse('m')) ** 2),
+    'momentum': lambda inputs: inputs.get('mass', UnitSpec.parse('kg')) * inputs.get('velocity', UnitSpec.parse('m/s')),
+    'force': lambda inputs: inputs.get('mass', UnitSpec.parse('kg')) * inputs.get('acceleration', UnitSpec.parse('m/s²')),
+    'work': lambda inputs: inputs.get('force', UnitSpec.parse('N')) * inputs.get('position', UnitSpec.parse('m')),
+    'power': lambda inputs: inputs.get('force', UnitSpec.parse('N')) * inputs.get('velocity', UnitSpec.parse('m/s')),
+
+    # Thermodynamic
+    'entropy': lambda inputs: UnitSpec.parse('J/K'),
+    'gibbs_free_energy': lambda inputs: UnitSpec.parse('J'),
+    'enthalpy': lambda inputs: UnitSpec.parse('J'),
+
+    # Fluid
+    'reynolds_number': lambda inputs: UnitSpec.dimensionless(),
+    'pressure_drop': lambda inputs: UnitSpec.parse('Pa'),
+    'head_loss': lambda inputs: UnitSpec.parse('m'),
+    'flow_rate': lambda inputs: UnitSpec.parse('m³/s'),
+}
+
+
+def compute_output_unit(computation: str, input_units: Dict[str, UnitSpec]) -> UnitSpec:
+    """
+    Compute the output unit for a given computation based on input units.
+
+    Args:
+        computation: Name of the computation (e.g., 'kinetic_energy', 'momentum')
+        input_units: Dict mapping input names to their units
+
+    Returns:
+        UnitSpec for the output
+    """
+    if computation in DERIVED_UNITS:
+        return DERIVED_UNITS[computation](input_units)
+    return UnitSpec.dimensionless()
+
+
+def propagate_units(
+    computation: str,
+    value: float,
+    input_units: Dict[str, UnitSpec],
+) -> UnitResult:
+    """
+    Compute a value and propagate units.
+
+    Args:
+        computation: Name of the computation
+        value: Numeric result (already computed)
+        input_units: Dict of input signal/constant units
+
+    Returns:
+        UnitResult with value and derived unit
+    """
+    output_unit = compute_output_unit(computation, input_units)
+    return UnitResult(value=value, unit=output_unit)
 
 
 # =============================================================================
@@ -206,6 +657,21 @@ class SignalSpec:
     is_component: bool = False
     vector_name: Optional[str] = None  # e.g., "velocity" for velocity_x
     component: Optional[str] = None    # e.g., "x"
+
+    def get_unit_spec(self) -> UnitSpec:
+        """Get parsed UnitSpec for this signal."""
+        if self.units:
+            return UnitSpec.parse(self.units)
+        elif self.physical_quantity != PhysicalQuantity.UNKNOWN:
+            # Use standard unit for physical quantity
+            std_unit = STANDARD_UNITS.get(self.physical_quantity)
+            return UnitSpec.parse(std_unit) if std_unit else UnitSpec.dimensionless()
+        else:
+            return UnitSpec.dimensionless()
+
+    def has_units(self) -> bool:
+        """Check if signal has explicit units."""
+        return self.units is not None or self.physical_quantity != PhysicalQuantity.UNKNOWN
 
     @classmethod
     def from_dict(cls, d: Dict) -> 'SignalSpec':
@@ -620,6 +1086,84 @@ class DataSpec:
             self.constants.density is not None and
             any(p.length is not None for p in self.pipe_network.pipes)
         )
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Unit helpers
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def get_signal_units(self) -> Dict[str, UnitSpec]:
+        """Get units for all signals that have them."""
+        units = {}
+        for signal in self.signals:
+            if signal.has_units():
+                units[signal.name] = signal.get_unit_spec()
+        return units
+
+    def get_input_units(self, computation: str) -> Dict[str, UnitSpec]:
+        """
+        Get input units needed for a computation.
+
+        Returns dict with keys like 'velocity', 'position', 'mass', etc.
+        mapped to their UnitSpec.
+        """
+        units = {}
+
+        # Add signal units by physical quantity
+        for signal in self.signals:
+            if signal.physical_quantity == PhysicalQuantity.VELOCITY:
+                units['velocity'] = signal.get_unit_spec()
+            elif signal.physical_quantity == PhysicalQuantity.POSITION:
+                units['position'] = signal.get_unit_spec()
+            elif signal.physical_quantity == PhysicalQuantity.ACCELERATION:
+                units['acceleration'] = signal.get_unit_spec()
+            elif signal.physical_quantity == PhysicalQuantity.FORCE:
+                units['force'] = signal.get_unit_spec()
+            elif signal.physical_quantity == PhysicalQuantity.TEMPERATURE:
+                units['temperature'] = signal.get_unit_spec()
+            elif signal.physical_quantity == PhysicalQuantity.PRESSURE:
+                units['pressure'] = signal.get_unit_spec()
+            elif signal.physical_quantity == PhysicalQuantity.VOLUME:
+                units['volume'] = signal.get_unit_spec()
+
+        # Add constant units (SI by default)
+        if self.constants.mass is not None:
+            units['mass'] = UnitSpec.parse('kg')
+        if self.constants.spring_constant is not None:
+            units['spring_constant'] = UnitSpec.parse('N/m')
+        if self.constants.moment_of_inertia is not None:
+            units['moment_of_inertia'] = UnitSpec.parse('kg⋅m²')
+        if self.constants.Cp is not None:
+            units['Cp'] = UnitSpec.parse('J/(mol⋅K)')
+        if self.constants.kinematic_viscosity is not None:
+            units['kinematic_viscosity'] = UnitSpec.parse('m²/s')
+        if self.constants.density is not None:
+            units['density'] = UnitSpec.parse('kg/m³')
+        if self.constants.dt is not None:
+            units['dt'] = UnitSpec.parse('s')
+
+        return units
+
+    def has_any_units(self) -> bool:
+        """Check if any signals have units specified."""
+        return any(s.has_units() for s in self.signals)
+
+    def compute_with_units(
+        self,
+        computation: str,
+        value: float,
+    ) -> UnitResult:
+        """
+        Wrap a computed value with its derived unit.
+
+        Args:
+            computation: Name of computation (e.g., 'kinetic_energy')
+            value: The computed numeric value
+
+        Returns:
+            UnitResult with value and unit
+        """
+        input_units = self.get_input_units(computation)
+        return propagate_units(computation, value, input_units)
 
 
 # =============================================================================
@@ -1110,3 +1654,122 @@ def print_curriculum():
 |                                                                              |
 +==============================================================================+
 """)
+
+
+# =============================================================================
+# CLI TEST
+# =============================================================================
+
+if __name__ == '__main__':
+    import sys
+
+    if len(sys.argv) > 1 and sys.argv[1] == '--test-units':
+        print("=" * 70)
+        print("PRISM Unit System Test")
+        print("=" * 70)
+
+        # Test basic unit parsing
+        print("\n1. Basic Unit Parsing:")
+        for unit_str in ['m', 'm/s', 'm/s²', 'N', 'J', 'kg', 'Pa', 'K', 'ft/s', 'psi']:
+            u = UnitSpec.parse(unit_str)
+            print(f"   {unit_str:10} -> {u.dimensions} = {u.to_si_symbol()}")
+
+        # Test unit algebra
+        print("\n2. Unit Algebra:")
+        m = UnitSpec.parse('m')
+        s = UnitSpec.parse('s')
+        kg = UnitSpec.parse('kg')
+
+        velocity = m / s
+        print(f"   m / s = {velocity} (velocity)")
+
+        acceleration = velocity / s
+        print(f"   (m/s) / s = {acceleration} (acceleration)")
+
+        force = kg * acceleration
+        print(f"   kg * (m/s²) = {force} (force = {force.to_si_symbol()})")
+
+        energy = force * m
+        print(f"   N * m = {energy} (energy = {energy.to_si_symbol()})")
+
+        momentum = kg * velocity
+        print(f"   kg * (m/s) = {momentum} (momentum)")
+
+        # Test unit result
+        print("\n3. Unit Results:")
+        ke_value = 450.0  # Computed kinetic energy
+        ke_units = kg * (velocity ** 2)
+        ke_result = UnitResult(value=ke_value, unit=ke_units)
+        print(f"   Kinetic energy: {ke_result}")
+
+        # Test conversion
+        print("\n4. Unit Conversion:")
+        temp_c = UnitResult(value=25.0, unit=UnitSpec.parse('°C'))
+        print(f"   Temperature: {temp_c}")
+
+        vel_ms = UnitResult(value=10.0, unit=UnitSpec.parse('m/s'))
+        vel_kmh = vel_ms.to('km/h')
+        print(f"   Velocity: {vel_ms} = {vel_kmh}")
+
+        # Test with config
+        print("\n5. Config Integration:")
+        config = {
+            'signals': [
+                {'name': 'position', 'physical_quantity': 'position', 'units': 'm'},
+                {'name': 'velocity', 'physical_quantity': 'velocity', 'units': 'm/s'},
+                {'name': 'sensor_raw'},  # No units
+            ],
+            'constants': {
+                'mass': 2.0,
+                'spring_constant': 50.0,
+            },
+            'window_size': 100,
+            'window_stride': 50,
+        }
+
+        spec = DataSpec.from_config(config)
+
+        print(f"   Has any units: {spec.has_any_units()}")
+        print(f"   Signal units:")
+        for name, unit in spec.get_signal_units().items():
+            print(f"      {name}: {unit}")
+
+        print(f"\n   Input units for kinetic_energy:")
+        input_units = spec.get_input_units('kinetic_energy')
+        for name, unit in input_units.items():
+            print(f"      {name}: {unit}")
+
+        # Compute with units
+        ke_raw = 0.5 * 2.0 * (3.0 ** 2)  # ½mv² with m=2kg, v=3m/s
+        ke_with_units = spec.compute_with_units('kinetic_energy', ke_raw)
+        print(f"\n   KE = ½mv² = ½ * 2.0 * 3.0² = {ke_with_units}")
+
+        # Imperial units example
+        print("\n6. Imperial Units:")
+        imperial_config = {
+            'signals': [
+                {'name': 'velocity', 'physical_quantity': 'velocity', 'units': 'ft/s'},
+                {'name': 'pressure', 'physical_quantity': 'pressure', 'units': 'psi'},
+            ],
+            'constants': {
+                'mass': 10.0,  # Still in kg (SI)
+            },
+            'window_size': 100,
+            'window_stride': 50,
+        }
+
+        imperial_spec = DataSpec.from_config(imperial_config)
+        for sig in imperial_spec.signals:
+            u = sig.get_unit_spec()
+            print(f"   {sig.name}: {sig.units} -> scale={u.scale} to SI")
+
+        print("\n" + "=" * 70)
+        print("Unit system test complete!")
+
+    elif len(sys.argv) > 1 and sys.argv[1] == '--curriculum':
+        print_curriculum()
+
+    else:
+        print("Usage:")
+        print("  python -m prism.capability --test-units    Test unit system")
+        print("  python -m prism.capability --curriculum    Print curriculum")
