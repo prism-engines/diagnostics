@@ -1,0 +1,59 @@
+name: PRISM Compute
+
+on:
+  # Trigger via API (ORTHON calls this)
+  repository_dispatch:
+    types: [compute]
+
+  # Manual trigger from GitHub UI
+  workflow_dispatch:
+    inputs:
+      discipline:
+        description: 'Discipline (reaction, transport, thermodynamics, etc.)'
+        required: true
+        default: 'reaction'
+      config_path:
+        description: 'Path to config file'
+        required: false
+        default: '~/prism-inbox/config.yaml'
+      input_path:
+        description: 'Path to input data'
+        required: false
+        default: '~/prism-inbox/data.csv'
+
+jobs:
+  compute:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        run: |
+          # Use existing venv or create
+          if [ -d "venv" ]; then
+            source venv/bin/activate
+          else
+            python3 -m venv venv
+            source venv/bin/activate
+            pip install -e .
+          fi
+
+      - name: Run PRISM Compute
+        env:
+          DISCIPLINE: ${{ github.event.inputs.discipline || github.event.client_payload.discipline || 'reaction' }}
+          CONFIG_PATH: ${{ github.event.inputs.config_path || github.event.client_payload.config_path || '~/prism-inbox/config.yaml' }}
+          INPUT_PATH: ${{ github.event.inputs.input_path || github.event.client_payload.input_path || '~/prism-inbox/data.csv' }}
+        run: |
+          source venv/bin/activate
+          python -m prism.entry_points.compute \
+            --discipline "$DISCIPLINE" \
+            --config "$CONFIG_PATH" \
+            --input "$INPUT_PATH"
+
+      - name: Notify ORTHON
+        if: always()
+        run: |
+          # Write completion status for ORTHON to read
+          echo '{"status": "${{ job.status }}", "timestamp": "'$(date -Iseconds)'"}' > ~/prism-mac/data/job_status.json
