@@ -42,6 +42,7 @@ import polars as pl
 
 from prism.db.parquet_store import get_path, ensure_directory, OBSERVATIONS
 from prism.db.polars_io import read_parquet, write_parquet_atomic
+from prism.config.validator import ConfigurationError
 
 warnings.filterwarnings('ignore')
 
@@ -336,11 +337,6 @@ def _compute_laplace_metrics(values: np.ndarray) -> Dict[str, float]:
 # CONFIG
 # =============================================================================
 
-class ConfigurationError(Exception):
-    """Raised when required configuration is missing."""
-    pass
-
-
 def load_config(data_path: Path) -> Dict[str, Any]:
     """
     Load config from data directory.
@@ -372,12 +368,25 @@ def load_config(data_path: Path) -> Dict[str, Any]:
     with open(config_path) as f:
         user_config = yaml.safe_load(f) or {}
 
+    # REQUIRED: min_samples
+    if 'min_samples' not in user_config:
+        raise ConfigurationError(
+            f"\n{'='*60}\n"
+            f"CONFIGURATION ERROR: min_samples not set\n"
+            f"{'='*60}\n"
+            f"File: {config_path}\n\n"
+            f"min_samples is REQUIRED. Example:\n\n"
+            f"  min_samples: 50\n\n"
+            f"NO DEFAULTS. NO FALLBACKS. Configure your domain.\n"
+            f"{'='*60}"
+        )
+
     config = {
-        'min_samples': user_config.get('min_samples', 50),
+        'min_samples': user_config['min_samples'],
         'engines': user_config.get('engines', {}),
     }
 
-    # REQUIRED: window.size
+    # REQUIRED: window section
     if 'window' not in user_config:
         raise ConfigurationError(
             f"\n{'='*60}\n"
@@ -443,7 +452,7 @@ def generate_windows(
     timestamps: np.ndarray,
     window_size: int,
     stride: int,
-    min_samples: int = 50,
+    min_samples: int,
 ) -> List[Dict]:
     """
     Generate overlapping windows from a signal.
@@ -453,7 +462,7 @@ def generate_windows(
         timestamps: Corresponding timestamps
         window_size: Window size (REQUIRED)
         stride: Stride between windows (REQUIRED)
-        min_samples: Minimum samples per window
+        min_samples: Minimum samples per window (REQUIRED)
 
     Yields:
         Dict with window_idx, window_start, window_end, values, timestamps
@@ -540,9 +549,10 @@ def compute_vector(
     Returns:
         DataFrame with one row per (entity, signal, window)
     """
-    min_samples = config.get('min_samples', 50)
-    window_size = config.get('window_size')
-    stride = config.get('stride')
+    # All values validated in load_config - no defaults
+    min_samples = config['min_samples']
+    window_size = config['window_size']
+    stride = config['stride']
 
     # Group observations by entity+signal
     signals = observations.group_by(['entity_id', 'signal_id']).agg([

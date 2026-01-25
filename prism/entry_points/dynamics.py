@@ -62,24 +62,56 @@ logger = logging.getLogger(__name__)
 # CONFIG
 # =============================================================================
 
-DEFAULT_CONFIG = {
-    'min_samples_dynamics': 10,
-}
+from prism.config.validator import ConfigurationError
 
 
 def load_config(data_path: Path) -> Dict[str, Any]:
-    """Load config from data directory."""
+    """
+    Load config from data directory.
+
+    REQUIRED config values (no defaults):
+        min_samples_dynamics - Minimum samples for dynamics calculation
+
+    Raises:
+        ConfigurationError: If required values not set
+    """
     config_path = data_path / 'config.yaml'
-    config = DEFAULT_CONFIG.copy()
 
-    if config_path.exists():
-        with open(config_path) as f:
-            user_config = yaml.safe_load(f) or {}
+    if not config_path.exists():
+        raise ConfigurationError(
+            f"\n{'='*60}\n"
+            f"CONFIGURATION ERROR: config.yaml not found\n"
+            f"{'='*60}\n"
+            f"Location: {config_path}\n\n"
+            f"PRISM requires explicit configuration.\n"
+            f"Create config.yaml with:\n\n"
+            f"  min_samples_dynamics: 10\n\n"
+            f"NO DEFAULTS. NO FALLBACKS. Configure your domain.\n"
+            f"{'='*60}"
+        )
 
-        if 'min_samples_dynamics' in user_config:
-            config['min_samples_dynamics'] = user_config['min_samples_dynamics']
+    with open(config_path) as f:
+        user_config = yaml.safe_load(f) or {}
 
-    return config
+    required = ['min_samples_dynamics']
+    missing = [k for k in required if k not in user_config]
+
+    if missing:
+        raise ConfigurationError(
+            f"\n{'='*60}\n"
+            f"CONFIGURATION ERROR: Missing required parameters\n"
+            f"{'='*60}\n"
+            f"File: {config_path}\n\n"
+            f"Missing: {missing}\n\n"
+            f"Add to config.yaml:\n"
+            f"  min_samples_dynamics: 10\n\n"
+            f"NO DEFAULTS. NO FALLBACKS. Configure your domain.\n"
+            f"{'='*60}"
+        )
+
+    return {
+        'min_samples_dynamics': user_config['min_samples_dynamics'],
+    }
 
 
 # =============================================================================
@@ -431,7 +463,8 @@ def compute_dynamics(
     This is where hd_slope is computed - the velocity of coherence loss
     across the FULL behavioral space.
     """
-    min_samples = config.get('min_samples_dynamics', 10)
+    # All values validated in load_config - no defaults
+    min_samples = config['min_samples_dynamics']
 
     entities = vector_df.select('entity_id').unique()['entity_id'].to_list()
     n_entities = len(entities)

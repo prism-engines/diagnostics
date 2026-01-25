@@ -57,24 +57,51 @@ logger = logging.getLogger(__name__)
 # CONFIG
 # =============================================================================
 
-DEFAULT_CONFIG = {
-    'min_samples_physics': 10,
-}
+from prism.config.validator import ConfigurationError
 
 
 def load_config(data_path: Path) -> Dict[str, Any]:
-    """Load config from data directory."""
+    """
+    Load config from data directory.
+
+    Physics layer uses min_samples from dynamics (same threshold applies).
+
+    Raises:
+        ConfigurationError: If config not found
+    """
     config_path = data_path / 'config.yaml'
-    config = DEFAULT_CONFIG.copy()
 
-    if config_path.exists():
-        with open(config_path) as f:
-            user_config = yaml.safe_load(f) or {}
+    if not config_path.exists():
+        raise ConfigurationError(
+            f"\n{'='*60}\n"
+            f"CONFIGURATION ERROR: config.yaml not found\n"
+            f"{'='*60}\n"
+            f"Location: {config_path}\n\n"
+            f"PRISM requires explicit configuration.\n"
+            f"NO DEFAULTS. NO FALLBACKS. Configure your domain.\n"
+            f"{'='*60}"
+        )
 
-        if 'min_samples_physics' in user_config:
-            config['min_samples_physics'] = user_config['min_samples_physics']
+    with open(config_path) as f:
+        user_config = yaml.safe_load(f) or {}
 
-    return config
+    # Physics uses dynamics min_samples threshold
+    if 'min_samples_dynamics' not in user_config:
+        raise ConfigurationError(
+            f"\n{'='*60}\n"
+            f"CONFIGURATION ERROR: min_samples_dynamics not set\n"
+            f"{'='*60}\n"
+            f"File: {config_path}\n\n"
+            f"Physics layer requires min_samples_dynamics.\n"
+            f"Add to config.yaml:\n\n"
+            f"  min_samples_dynamics: 10\n\n"
+            f"NO DEFAULTS. NO FALLBACKS. Configure your domain.\n"
+            f"{'='*60}"
+        )
+
+    return {
+        'min_samples_physics': user_config['min_samples_dynamics'],
+    }
 
 
 # =============================================================================

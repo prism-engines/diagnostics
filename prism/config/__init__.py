@@ -46,6 +46,15 @@ from prism.config.cascade import (
     get_thresholds,
 )
 
+from prism.config.validator import (
+    ConfigurationError,
+    validate_required,
+    validate_stage,
+    validate_or_die,
+    require_key,
+    REQUIRED_FIELDS,
+)
+
 from prism.config.thresholds import (
     # Signal Typology
     TYPOLOGY_CLASSIFICATION,
@@ -88,6 +97,13 @@ from prism.config.thresholds import (
 )
 
 __all__ = [
+    # ZERO DEFAULTS POLICY - Configuration validation
+    'ConfigurationError',
+    'validate_required',
+    'validate_stage',
+    'validate_or_die',
+    'require_key',
+    'REQUIRED_FIELDS',
     # Dataset configuration (axis-agnostic)
     'DatasetConfig',
     'normalize_columns',

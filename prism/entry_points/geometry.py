@@ -57,26 +57,56 @@ logger = logging.getLogger(__name__)
 # CONFIG
 # =============================================================================
 
-DEFAULT_CONFIG = {
-    'min_samples_geometry': 10,
-    'n_pca_components': 10,
-    'n_clusters': 3,
-}
+from prism.config.validator import ConfigurationError
 
 
 def load_config(data_path: Path) -> Dict[str, Any]:
-    """Load config from data directory."""
+    """
+    Load config from data directory.
+
+    REQUIRED config values (no defaults):
+        min_samples_geometry - Minimum samples for geometry calculation
+
+    Raises:
+        ConfigurationError: If required values not set
+    """
     config_path = data_path / 'config.yaml'
-    config = DEFAULT_CONFIG.copy()
 
-    if config_path.exists():
-        with open(config_path) as f:
-            user_config = yaml.safe_load(f) or {}
+    if not config_path.exists():
+        raise ConfigurationError(
+            f"\n{'='*60}\n"
+            f"CONFIGURATION ERROR: config.yaml not found\n"
+            f"{'='*60}\n"
+            f"Location: {config_path}\n\n"
+            f"PRISM requires explicit configuration.\n"
+            f"Create config.yaml with:\n\n"
+            f"  min_samples_geometry: 10\n\n"
+            f"NO DEFAULTS. NO FALLBACKS. Configure your domain.\n"
+            f"{'='*60}"
+        )
 
-        if 'min_samples_geometry' in user_config:
-            config['min_samples_geometry'] = user_config['min_samples_geometry']
+    with open(config_path) as f:
+        user_config = yaml.safe_load(f) or {}
 
-    return config
+    required = ['min_samples_geometry']
+    missing = [k for k in required if k not in user_config]
+
+    if missing:
+        raise ConfigurationError(
+            f"\n{'='*60}\n"
+            f"CONFIGURATION ERROR: Missing required parameters\n"
+            f"{'='*60}\n"
+            f"File: {config_path}\n\n"
+            f"Missing: {missing}\n\n"
+            f"Add to config.yaml:\n"
+            f"  min_samples_geometry: 10\n\n"
+            f"NO DEFAULTS. NO FALLBACKS. Configure your domain.\n"
+            f"{'='*60}"
+        )
+
+    return {
+        'min_samples_geometry': user_config['min_samples_geometry'],
+    }
 
 
 # =============================================================================
@@ -365,8 +395,9 @@ def compute_entity_geometry(
     """
     results = {}
 
-    # PCA
-    pca = compute_pca(feature_matrix, config.get('n_pca_components', 10))
+    # PCA - uses min of n_features and 10 components (algorithm parameter, not domain config)
+    n_components = min(feature_matrix.shape[1], 10)
+    pca = compute_pca(feature_matrix, n_components)
     if pca:
         # Serialize matrices as JSON for storage
         if 'pca_components' in pca:
@@ -399,8 +430,10 @@ def compute_entity_geometry(
             if k in cov:
                 results[k] = cov[k]
 
-    # Clustering (for regime detection)
-    clusters = compute_clustering(feature_matrix, config.get('n_clusters', 3))
+    # Clustering (for regime detection) - uses silhouette-optimal or sqrt(n) clusters
+    n_samples = feature_matrix.shape[0]
+    n_clusters = max(2, min(int(np.sqrt(n_samples)), 10))
+    clusters = compute_clustering(feature_matrix, n_clusters)
     if clusters:
         if 'cluster_centers' in clusters:
             results['cluster_centers_json'] = json.dumps(clusters['cluster_centers'].tolist())
@@ -437,7 +470,8 @@ def compute_geometry(
     - PCA components (for trajectory projection)
     - Cluster centers (for regime detection)
     """
-    min_samples = config.get('min_samples_geometry', 10)
+    # All values validated in load_config - no defaults
+    min_samples = config['min_samples_geometry']
 
     entities = vector_df.select('entity_id').unique()['entity_id'].to_list()
     n_entities = len(entities)
