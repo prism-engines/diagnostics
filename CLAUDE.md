@@ -2,6 +2,119 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+---
+
+## CRITICAL: PRISM ↔ ORTHON Architecture
+
+**PRISM is an HTTP service ONLY. NOT a pip install. NO code sharing with ORTHON.**
+
+```
+┌─────────────────┐         HTTP          ┌─────────────────┐
+│     ORTHON      │ ──────────────────▶   │      PRISM      │
+│   (Frontend)    │   POST /compute       │  (Compute API)  │
+│   Streamlit     │ ◀──────────────────   │  localhost:8100 │
+│                 │   {status, parquets}  │                 │
+└─────────────────┘                       └─────────────────┘
+        │                                         │
+        │ reads                                   │ writes
+        ▼                                         ▼
+   ~/prism-mac/data/*.parquet              ~/prism-mac/data/*.parquet
+```
+
+### Start PRISM API (MUST use venv)
+```bash
+cd ~/prism_engines-prism
+./venv/bin/python -m prism.entry_points.api --port 8100
+
+# Or background:
+nohup ./venv/bin/python -m prism.entry_points.api --port 8100 > /tmp/prism-api.log 2>&1 &
+```
+
+### Verify PRISM is Running
+```bash
+curl http://localhost:8100/health
+# Should return: {"status":"ok","version":"0.1.0",...}
+```
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Status check |
+| `/compute` | POST | Run computation (synchronous) |
+| `/files` | GET | List available parquets |
+| `/read?path=...` | GET | Read parquet as JSON |
+| `/disciplines` | GET | List available disciplines |
+
+### /compute Request Schema
+```json
+{
+  "config": {
+    "discipline": "mechanics",
+    "window": {"size": 30, "stride": 15},
+    "min_samples": 20,
+    "engines": {
+      "vector": {"enabled": ["hurst_dfa", "sample_entropy", "stationarity", "trend"]},
+      "geometry": {"enabled": ["bg_correlation", "bg_distance", "bg_clustering"]}
+    }
+  },
+  "observations_path": "/path/to/observations.parquet"
+}
+```
+
+### /compute Response Schema
+```json
+{
+  "status": "complete",
+  "results_path": "/Users/.../prism-mac/data",
+  "parquets": ["vector.parquet", "physics.parquet"],
+  "duration_seconds": 6.92,
+  "message": null,
+  "hint": null,
+  "engine": null
+}
+```
+
+### Observations Format (PRISM expects)
+| Column | Type | Description |
+|--------|------|-------------|
+| entity_id | str | Entity identifier (e.g., "engine_1") |
+| signal_id | str | Signal name (e.g., "temperature") |
+| index | float | Sequence index (time, cycle, depth) |
+| value | float | Measurement value |
+
+### Output Parquets
+- `vector.parquet` - Signal-level metrics (hurst, entropy, etc.)
+- `geometry.parquet` - Pairwise relationships
+- `dynamics.parquet` - Temporal dynamics
+- `physics.parquet` - Energy/momentum metrics
+
+### Session Recovery Checklist
+If session dies, run these to restore state:
+```bash
+# 1. Check if PRISM is running
+curl http://localhost:8100/health
+
+# 2. If not running, start it (MUST use venv!)
+cd ~/prism_engines-prism
+nohup ./venv/bin/python -m prism.entry_points.api --port 8100 > /tmp/prism-api.log 2>&1 &
+
+# 3. Verify
+curl http://localhost:8100/health
+
+# 4. Check existing data
+ls -la ~/prism-mac/data/*.parquet
+```
+
+### Common Issues
+| Issue | Cause | Fix |
+|-------|-------|-----|
+| "No module named 'polars'" | Wrong Python | Use `./venv/bin/python` not system python |
+| ORTHON shows "fallback" | Cached backend | Restart ORTHON Streamlit |
+| 0.5s compute time | Pipeline not running | Check `/tmp/prism-api.log` for errors |
+
+---
+
 ## Project Overview
 
 PRISM Diagnostics is a behavioral geometry engine for industrial signal topology analysis. It computes intrinsic properties, relational structure, and temporal dynamics of sensor data from turbofans, bearings, hydraulic systems, and chemical processes.
@@ -260,3 +373,29 @@ write_parquet_atomic(df, get_path(VECTOR))
 - **Core:** NumPy, SciPy, scikit-learn
 - **ML:** XGBoost, CatBoost, LightGBM (optional)
 - **Specialized:** antropy, nolds, pyrqa, arch, PyWavelets, networkx
+- **API:** FastAPI, uvicorn, httpx (for ORTHON communication)
+
+---
+
+## Current Session State (Jan 25, 2026)
+
+### What's Working
+- PRISM API running on port 8100 with venv Python
+- `/compute` endpoint returns real results (tested: 6.92s, 144 rows × 33 cols)
+- vector.parquet and physics.parquet being created
+
+### What's In Progress
+- CC ORTHON wiring up "Analyze" button to call PRISM `/compute`
+- ORTHON needs to send POST to `http://localhost:8100/compute`
+
+### Key Files
+- `prism/entry_points/api.py` - HTTP API (FastAPI)
+- `prism/entry_points/compute.py` - Pipeline runner
+- `prism/entry_points/vector.py` - Vector engine runner
+- `~/prism-mac/data/config.yaml` - Current config
+- `~/prism-mac/data/observations.parquet` - Input data
+- `/tmp/prism-api.log` - API logs
+
+### DO NOT TOUCH
+- ORTHON code lives in `~/prism_engines-orthon/` - let CC ORTHON handle it
+- Never `pip install prism` - PRISM is HTTP only
