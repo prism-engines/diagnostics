@@ -3,28 +3,30 @@
 PRISM Physics Entry Point
 =========================
 
-Computes physics-inspired metrics using ALL physics engines.
+Answers: WHY is it moving?
 
-Engines (8 total):
-    - hamiltonian: Total energy (H = T + V), conservation detection
-    - lagrangian: Action principle (L = T - V)
-    - kinetic_energy: Energy of motion (T = 1/2 mv^2)
-    - potential_energy: Energy of position (V = 1/2 k(x-x0)^2)
-    - gibbs_free_energy: Spontaneity and equilibrium (G = H - TS)
-    - angular_momentum: Cyclical dynamics (L = q x p)
-    - momentum_flux: Flow dynamics (Navier-Stokes inspired)
-    - derivatives: Velocity, acceleration, jerk analysis
+REQUIRES: vector.parquet AND geometry.parquet AND dynamics.parquet
 
-Key insight:
-    The Hamiltonian is the canary - when energy stops being conserved,
-    something fundamental has changed in the system.
+You cannot compute force without motion.
+You cannot compute energy without velocity.
+
+Physics explains WHY the system is moving the way it is.
+It requires dynamics (motion) to compute forces.
+
+Output:
+    data/physics.parquet - ONE ROW PER ENTITY with:
+        - hamiltonian_H: Total energy (T + V)
+        - hamiltonian_T: Kinetic energy (from dynamics velocity)
+        - hamiltonian_V: Potential energy (distance from equilibrium)
+        - lagrangian_L: Action (T - V)
+        - gibbs_free_energy: G = H - TS (spontaneity)
+        - momentum_magnitude: Current momentum
+        - force_mean: Average force magnitude
+        - energy_conservation: How stable is H over time?
 
 Usage:
     python -m prism.entry_points.physics
     python -m prism.entry_points.physics --force
-
-Output:
-    data/physics.parquet - Physics metrics per (entity, signal, window)
 """
 
 import argparse
@@ -32,19 +34,16 @@ import logging
 import sys
 import time
 import yaml
-from datetime import datetime
+import json
 from pathlib import Path
-from typing import Dict, List, Optional, Any
-import warnings
+from typing import Dict, Any, Optional
 
 import numpy as np
-import pandas as pd
 import polars as pl
 
-from prism.db.parquet_store import get_path, ensure_directory, OBSERVATIONS
+from prism.core.dependencies import check_dependencies
+from prism.db.parquet_store import get_path, ensure_directory, VECTOR, GEOMETRY, DYNAMICS, PHYSICS
 from prism.db.polars_io import read_parquet, write_parquet_atomic
-
-warnings.filterwarnings('ignore')
 
 logging.basicConfig(
     level=logging.INFO,
@@ -55,98 +54,11 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# ENGINE IMPORTS
-# =============================================================================
-
-def import_engines(config: Dict[str, Any]):
-    """
-    Import physics engines based on config selection.
-
-    Config structure:
-        engines:
-          physics:
-            hamiltonian: true
-            lagrangian: false
-            ...
-    """
-    engines = {}
-    engine_config = config.get('engines', {}).get('physics', {})
-
-    # If no config, enable all engines by default
-    if not engine_config:
-        engine_config = {k: True for k in [
-            'hamiltonian', 'lagrangian', 'kinetic', 'potential',
-            'gibbs', 'angular_momentum', 'momentum_flux', 'derivatives',
-        ]}
-
-    if engine_config.get('hamiltonian', True):
-        try:
-            from prism.engines.physics import compute_hamiltonian
-            engines['hamiltonian'] = compute_hamiltonian
-        except ImportError:
-            pass
-
-    if engine_config.get('lagrangian', True):
-        try:
-            from prism.engines.physics import compute_lagrangian
-            engines['lagrangian'] = compute_lagrangian
-        except ImportError:
-            pass
-
-    if engine_config.get('kinetic', True):
-        try:
-            from prism.engines.physics import compute_kinetic
-            engines['kinetic'] = compute_kinetic
-        except ImportError:
-            pass
-
-    if engine_config.get('potential', True):
-        try:
-            from prism.engines.physics import compute_potential
-            engines['potential'] = compute_potential
-        except ImportError:
-            pass
-
-    if engine_config.get('gibbs', True):
-        try:
-            from prism.engines.physics import compute_gibbs
-            engines['gibbs'] = compute_gibbs
-        except ImportError:
-            pass
-
-    if engine_config.get('angular_momentum', True):
-        try:
-            from prism.engines.physics import compute_angular_momentum
-            engines['angular_momentum'] = compute_angular_momentum
-        except ImportError:
-            pass
-
-    if engine_config.get('momentum_flux', True):
-        try:
-            from prism.engines.physics import compute_momentum_flux
-            engines['momentum_flux'] = compute_momentum_flux
-        except ImportError:
-            pass
-
-    if engine_config.get('derivatives', True):
-        try:
-            from prism.engines.physics import compute_derivatives
-            engines['derivatives'] = compute_derivatives
-        except ImportError:
-            pass
-
-    logger.info(f"  Loaded {len(engines)} physics engines from config")
-    return engines
-
-
-# =============================================================================
 # CONFIG
 # =============================================================================
 
 DEFAULT_CONFIG = {
-    'min_samples': 50,
-    'window_size': None,
-    'stride': None,
+    'min_samples_physics': 10,
 }
 
 
@@ -159,126 +71,411 @@ def load_config(data_path: Path) -> Dict[str, Any]:
         with open(config_path) as f:
             user_config = yaml.safe_load(f) or {}
 
-        # Extract relevant settings
-        if 'min_samples' in user_config:
-            config['min_samples'] = user_config['min_samples']
-
-        # Store engine config
-        config['engines'] = user_config.get('engines', {})
+        if 'min_samples_physics' in user_config:
+            config['min_samples_physics'] = user_config['min_samples_physics']
 
     return config
 
 
 # =============================================================================
-# RESULT FLATTENING
+# HELPER FUNCTIONS
 # =============================================================================
 
-def flatten_result(result: Any, prefix: str) -> Dict[str, float]:
-    """Flatten engine result (dataclass or dict) to flat float dict."""
-    flat = {}
+def get_dynamics_values(dynamics_df: pl.DataFrame, entity_id: str) -> Dict[str, float]:
+    """Extract dynamics values for an entity."""
+    entity_dyn = dynamics_df.filter(pl.col('entity_id') == entity_id)
 
-    if result is None:
-        return flat
+    if len(entity_dyn) == 0:
+        return {}
 
-    if hasattr(result, '__dataclass_fields__'):
-        # Dataclass result
-        for k in result.__dataclass_fields__:
-            v = getattr(result, k)
-            if isinstance(v, (int, float, np.integer, np.floating)):
-                val = float(v)
-                if np.isfinite(val):
-                    flat[f"{prefix}_{k}"] = val
-            elif isinstance(v, bool):
-                flat[f"{prefix}_{k}"] = 1.0 if v else 0.0
-            elif isinstance(v, str):
-                # Skip string fields
-                pass
-    elif isinstance(result, dict):
-        for k, v in result.items():
-            if isinstance(v, (int, float, np.integer, np.floating)):
-                val = float(v)
-                if np.isfinite(val):
-                    flat[f"{prefix}_{k}"] = val
-            elif isinstance(v, np.ndarray) and v.size == 1:
-                val = float(v.item())
-                if np.isfinite(val):
-                    flat[f"{prefix}_{k}"] = val
+    result = {}
+    for col in ['hd_slope', 'hd_velocity_mean', 'hd_velocity_std',
+                'hd_acceleration_mean', 'hd_acceleration_std',
+                'hd_final_distance', 'hd_max_distance']:
+        if col in entity_dyn.columns:
+            val = entity_dyn[col][0]
+            if val is not None and np.isfinite(val):
+                result[col] = float(val)
 
-    return flat
+    return result
+
+
+def get_geometry_values(geometry_df: pl.DataFrame, entity_id: str) -> Dict[str, float]:
+    """Extract geometry values for an entity."""
+    entity_geom = geometry_df.filter(pl.col('entity_id') == entity_id)
+
+    if len(entity_geom) == 0:
+        return {}
+
+    result = {}
+    for col in ['effective_dimensionality', 'cov_trace', 'dist_mean', 'centroid_dist_mean']:
+        if col in entity_geom.columns:
+            val = entity_geom[col][0]
+            if val is not None and np.isfinite(val):
+                result[col] = float(val)
+
+    return result
+
+
+def get_vector_entropy(vector_df: pl.DataFrame, entity_id: str) -> float:
+    """Get entropy-related metric from vector layer."""
+    entity_vec = vector_df.filter(pl.col('entity_id') == entity_id)
+
+    if len(entity_vec) == 0:
+        return 0.0
+
+    # Look for entropy columns
+    entropy_cols = [c for c in entity_vec.columns if 'entropy' in c.lower()]
+
+    if not entropy_cols:
+        return 0.0
+
+    # Average entropy across signals
+    entropies = []
+    for col in entropy_cols:
+        vals = entity_vec[col].to_numpy()
+        vals = vals[np.isfinite(vals)]
+        if len(vals) > 0:
+            entropies.append(np.mean(vals))
+
+    return float(np.mean(entropies)) if entropies else 0.0
+
+
+def get_vector_volatility(vector_df: pl.DataFrame, entity_id: str) -> float:
+    """Get volatility (temperature proxy) from vector layer."""
+    entity_vec = vector_df.filter(pl.col('entity_id') == entity_id)
+
+    if len(entity_vec) == 0:
+        return 0.0
+
+    # Look for volatility/variance columns
+    vol_cols = [c for c in entity_vec.columns if 'vol' in c.lower() or 'std' in c.lower()]
+
+    if not vol_cols:
+        return 0.0
+
+    # Average volatility across signals
+    vols = []
+    for col in vol_cols:
+        vals = entity_vec[col].to_numpy()
+        vals = vals[np.isfinite(vals)]
+        if len(vals) > 0:
+            vols.append(np.mean(vals))
+
+    return float(np.mean(vols)) if vols else 0.0
+
+
+# =============================================================================
+# HAMILTONIAN
+# =============================================================================
+
+def compute_hamiltonian(
+    entity_id: str,
+    dynamics_vals: Dict[str, float],
+    geometry_vals: Dict[str, float],
+) -> Dict[str, Any]:
+    """
+    Compute Hamiltonian (total energy) for entity.
+
+    H = T + V
+
+    Where:
+    - T = kinetic energy = ½ v² (velocity from dynamics)
+    - V = potential energy = ½ k x² (distance from equilibrium)
+    """
+    # Kinetic energy: T = ½ v²
+    velocity = dynamics_vals.get('hd_velocity_mean', 0.0)
+    T = 0.5 * velocity ** 2
+
+    # Potential energy: V = ½ k x²
+    # x = distance from equilibrium (approximated by centroid distance or final distance)
+    displacement = dynamics_vals.get('hd_final_distance', 0.0)
+
+    # Spring constant k ≈ 1 / variance (stiffer system = lower variance)
+    cov_trace = geometry_vals.get('cov_trace', 1.0)
+    k = 1.0 / (cov_trace + 1e-10) if cov_trace > 0 else 1.0
+    k = min(k, 10.0)  # Cap to avoid numerical issues
+
+    V = 0.5 * k * displacement ** 2
+
+    # Total energy
+    H = T + V
+
+    # Energy partition
+    T_fraction = T / H if H > 1e-10 else 0.0
+
+    return {
+        'hamiltonian_T': float(T),
+        'hamiltonian_V': float(V),
+        'hamiltonian_H': float(H),
+        'hamiltonian_T_fraction': float(T_fraction),
+        'hamiltonian_spring_k': float(k),
+    }
+
+
+# =============================================================================
+# LAGRANGIAN
+# =============================================================================
+
+def compute_lagrangian(
+    entity_id: str,
+    dynamics_vals: Dict[str, float],
+    geometry_vals: Dict[str, float],
+) -> Dict[str, Any]:
+    """
+    Compute Lagrangian and action.
+
+    L = T - V
+
+    The Lagrangian describes the "action" of the system.
+    Deviation from expected motion indicates external forcing.
+    """
+    # Get T and V from Hamiltonian calculation
+    velocity = dynamics_vals.get('hd_velocity_mean', 0.0)
+    T = 0.5 * velocity ** 2
+
+    displacement = dynamics_vals.get('hd_final_distance', 0.0)
+    cov_trace = geometry_vals.get('cov_trace', 1.0)
+    k = 1.0 / (cov_trace + 1e-10) if cov_trace > 0 else 1.0
+    k = min(k, 10.0)
+    V = 0.5 * k * displacement ** 2
+
+    L = T - V
+
+    # Residual force (deviation from expected motion)
+    # Expected: system should decelerate as it moves away from equilibrium
+    # Actual acceleration
+    actual_accel = dynamics_vals.get('hd_acceleration_mean', 0.0)
+
+    # Expected acceleration (from potential gradient): F = -kx, a = -kx/m
+    expected_accel = -k * displacement
+
+    residual_force = abs(actual_accel - expected_accel)
+
+    return {
+        'lagrangian_L': float(L),
+        'lagrangian_residual_force': float(residual_force),
+    }
+
+
+# =============================================================================
+# GIBBS FREE ENERGY
+# =============================================================================
+
+def compute_gibbs_free_energy(
+    entity_id: str,
+    dynamics_vals: Dict[str, float],
+    entropy: float,
+    temperature: float,
+    hamiltonian_H: float,
+) -> Dict[str, Any]:
+    """
+    Compute Gibbs free energy.
+
+    G = H - TS
+
+    Where:
+    - H = enthalpy (≈ Hamiltonian)
+    - T = "temperature" (volatility/noise level from vector)
+    - S = entropy (from vector layer)
+
+    Negative dG → spontaneous transition (system naturally degrading)
+    Positive dG → requires external work
+    """
+    # Gibbs free energy
+    TS = temperature * entropy
+    G = hamiltonian_H - TS
+
+    # Rate of change proxy: hd_slope indicates direction
+    hd_slope = dynamics_vals.get('hd_slope', 0.0)
+
+    # If hd_slope > 0, system is moving away from baseline → spontaneous degradation
+    spontaneous = hd_slope > 0
+
+    return {
+        'gibbs_free_energy': float(G),
+        'gibbs_H': float(hamiltonian_H),
+        'gibbs_TS': float(TS),
+        'gibbs_temperature': float(temperature),
+        'gibbs_entropy': float(entropy),
+        'gibbs_spontaneous': 1.0 if spontaneous else 0.0,
+    }
+
+
+# =============================================================================
+# MOMENTUM AND FORCES
+# =============================================================================
+
+def compute_momentum_analysis(
+    entity_id: str,
+    dynamics_vals: Dict[str, float],
+) -> Dict[str, Any]:
+    """
+    Compute momentum and forces from dynamics.
+
+    p = mv (momentum, mass = 1 in behavioral space)
+    F = ma (force from acceleration)
+    """
+    # Momentum (mass = 1)
+    velocity = dynamics_vals.get('hd_velocity_mean', 0.0)
+    momentum = velocity  # m = 1
+
+    # Force (F = ma, m = 1)
+    acceleration = dynamics_vals.get('hd_acceleration_mean', 0.0)
+    force = acceleration
+
+    # Impulse proxy (change in momentum over trajectory)
+    # Approximated by velocity_std * some factor
+    velocity_std = dynamics_vals.get('hd_velocity_std', 0.0)
+    impulse_proxy = velocity_std
+
+    return {
+        'momentum_magnitude': float(abs(momentum)),
+        'momentum_direction': 1.0 if momentum > 0 else -1.0 if momentum < 0 else 0.0,
+        'force_mean': float(abs(force)),
+        'force_direction': 1.0 if force > 0 else -1.0 if force < 0 else 0.0,
+        'impulse_proxy': float(impulse_proxy),
+    }
+
+
+# =============================================================================
+# EQUILIBRIUM ANALYSIS
+# =============================================================================
+
+def analyze_equilibrium(
+    entity_id: str,
+    dynamics_vals: Dict[str, float],
+    geometry_vals: Dict[str, float],
+) -> Dict[str, Any]:
+    """
+    Analyze equilibrium state and stability.
+    """
+    # Distance from equilibrium (baseline)
+    displacement = dynamics_vals.get('hd_final_distance', 0.0)
+    max_displacement = dynamics_vals.get('hd_max_distance', 0.0)
+
+    # Velocity at end
+    velocity = dynamics_vals.get('hd_velocity_mean', 0.0)
+    acceleration = dynamics_vals.get('hd_acceleration_mean', 0.0)
+
+    # Stability indicators
+    # Stable: returning to baseline (negative velocity when displaced)
+    # Unstable: moving away (positive velocity when displaced)
+    if abs(displacement) < 1e-6:
+        stability = 'at_equilibrium'
+    elif velocity * np.sign(displacement) < 0:
+        stability = 'stable'  # Moving back toward baseline
+    elif velocity * np.sign(displacement) > 0:
+        stability = 'unstable'  # Moving away from baseline
+    else:
+        stability = 'unknown'
+
+    stability_score = {
+        'at_equilibrium': 1.0,
+        'stable': 0.7,
+        'unstable': 0.0,
+        'unknown': 0.5,
+    }.get(stability, 0.5)
+
+    return {
+        'equilibrium_distance': float(displacement),
+        'equilibrium_max_distance': float(max_displacement),
+        'equilibrium_stability_score': float(stability_score),
+    }
 
 
 # =============================================================================
 # MAIN COMPUTATION
 # =============================================================================
 
+def compute_entity_physics(
+    entity_id: str,
+    vector_df: pl.DataFrame,
+    geometry_df: pl.DataFrame,
+    dynamics_df: pl.DataFrame,
+) -> Dict[str, Any]:
+    """
+    Compute all physics metrics for one entity.
+    """
+    # Get values from upstream layers
+    dynamics_vals = get_dynamics_values(dynamics_df, entity_id)
+    geometry_vals = get_geometry_values(geometry_df, entity_id)
+
+    if not dynamics_vals:
+        return {}
+
+    # Get entropy and temperature from vector
+    entropy = get_vector_entropy(vector_df, entity_id)
+    temperature = get_vector_volatility(vector_df, entity_id)
+
+    # Hamiltonian
+    hamiltonian = compute_hamiltonian(entity_id, dynamics_vals, geometry_vals)
+
+    # Lagrangian
+    lagrangian = compute_lagrangian(entity_id, dynamics_vals, geometry_vals)
+
+    # Gibbs free energy
+    gibbs = compute_gibbs_free_energy(
+        entity_id, dynamics_vals, entropy, temperature, hamiltonian['hamiltonian_H']
+    )
+
+    # Momentum
+    momentum = compute_momentum_analysis(entity_id, dynamics_vals)
+
+    # Equilibrium
+    equilibrium = analyze_equilibrium(entity_id, dynamics_vals, geometry_vals)
+
+    # Combine all
+    result = {'entity_id': entity_id}
+    result.update(hamiltonian)
+    result.update(lagrangian)
+    result.update(gibbs)
+    result.update(momentum)
+    result.update(equilibrium)
+
+    # Include key dynamics values for reference
+    result['hd_slope'] = dynamics_vals.get('hd_slope', 0.0)
+    result['hd_velocity_mean'] = dynamics_vals.get('hd_velocity_mean', 0.0)
+    result['hd_acceleration_mean'] = dynamics_vals.get('hd_acceleration_mean', 0.0)
+
+    return result
+
+
 def compute_physics(
-    observations: pl.DataFrame,
+    vector_df: pl.DataFrame,
+    geometry_df: pl.DataFrame,
+    dynamics_df: pl.DataFrame,
     config: Dict[str, Any],
-    engines: Dict[str, Any],
-    force: bool = False,
 ) -> pl.DataFrame:
     """
-    Compute physics metrics for all signals.
+    Compute all physics metrics.
+
+    REQUIRES all three upstream layers.
+
+    Output: ONE ROW PER ENTITY
     """
-    min_samples = config.get('min_samples', 50)
+    entities = dynamics_df.select('entity_id').unique()['entity_id'].to_list()
+    n_entities = len(entities)
 
-    signals = observations.group_by(['entity_id', 'signal_id']).agg([
-        pl.col('value').alias('values'),
-        pl.col('timestamp').alias('timestamps'),
-    ])
-
-    n_signals = len(signals)
-    n_engines = len(engines)
-    logger.info(f"Processing {n_signals} signals with {n_engines} engines")
+    logger.info(f"Computing physics for {n_entities} entities")
 
     results = []
 
-    for i, row in enumerate(signals.iter_rows(named=True)):
-        entity_id = row['entity_id']
-        signal_id = row['signal_id']
-        values = np.array(row['values'], dtype=float)
-        timestamps = np.array(row['timestamps'], dtype=float)
+    for i, entity_id in enumerate(entities):
+        physics = compute_entity_physics(entity_id, vector_df, geometry_df, dynamics_df)
 
-        # Sort and clean
-        sort_idx = np.argsort(timestamps)
-        values = values[sort_idx]
-        timestamps = timestamps[sort_idx]
+        if physics:
+            results.append(physics)
 
-        valid = ~np.isnan(values)
-        values = values[valid]
-        timestamps = timestamps[valid]
-
-        if len(values) < min_samples:
-            continue
-
-        row_data = {
-            'entity_id': entity_id,
-            'signal_id': signal_id,
-            'n_samples': len(values),
-            'window_start': float(timestamps[0]),
-            'window_end': float(timestamps[-1]),
-        }
-
-        # Run all physics engines
-        for engine_name, compute_fn in engines.items():
-            try:
-                result = compute_fn(values)
-                flat = flatten_result(result, engine_name)
-                row_data.update(flat)
-            except Exception as e:
-                logger.debug(f"  {engine_name} failed: {e}")
-
-        results.append(row_data)
-
-        if (i + 1) % 10 == 0:
-            logger.info(f"  Processed {i + 1}/{n_signals} signals")
+        if (i + 1) % 50 == 0:
+            logger.info(f"  Processed {i + 1}/{n_entities} entities")
 
     if not results:
-        logger.warning("No signals with sufficient data")
+        logger.warning("No entities with sufficient data for physics")
         return pl.DataFrame()
 
     df = pl.DataFrame(results)
-    logger.info(f"Physics: {len(df)} rows, {len(df.columns)} columns")
+    logger.info(f"Physics: {len(df)} rows (one per entity), {len(df.columns)} columns")
 
     return df
 
@@ -289,7 +486,7 @@ def compute_physics(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="PRISM Physics - Energy and momentum computation"
+        description="PRISM Physics - WHY is it moving? (requires dynamics)"
     )
     parser.add_argument('--force', '-f', action='store_true',
                         help='Recompute even if output exists')
@@ -298,17 +495,16 @@ def main():
 
     logger.info("=" * 60)
     logger.info("PRISM Physics Engine")
+    logger.info("WHY is it moving?")
     logger.info("=" * 60)
 
     ensure_directory()
+    data_path = get_path(VECTOR).parent
 
-    obs_path = get_path(OBSERVATIONS)
-    if not obs_path.exists():
-        logger.error("observations.parquet not found")
-        sys.exit(1)
+    # Check dependencies (HARD FAIL if any missing)
+    check_dependencies('physics', data_path)
 
-    data_path = obs_path.parent
-    output_path = data_path / 'physics.parquet'
+    output_path = get_path(PHYSICS)
 
     if output_path.exists() and not args.force:
         logger.info("physics.parquet exists, use --force to recompute")
@@ -316,15 +512,21 @@ def main():
 
     config = load_config(data_path)
 
-    logger.info("Loading engines from config...")
-    engines = import_engines(config)
-    logger.info(f"Total engines: {len(engines)}")
+    # Load ALL required inputs
+    vector_path = get_path(VECTOR)
+    geometry_path = get_path(GEOMETRY)
+    dynamics_path = get_path(DYNAMICS)
 
-    observations = read_parquet(obs_path)
-    logger.info(f"Loaded {len(observations):,} observations")
+    vector_df = read_parquet(vector_path)
+    geometry_df = read_parquet(geometry_path)
+    dynamics_df = read_parquet(dynamics_path)
+
+    logger.info(f"Loaded vector.parquet: {len(vector_df):,} rows, {len(vector_df.columns)} columns")
+    logger.info(f"Loaded geometry.parquet: {len(geometry_df):,} rows, {len(geometry_df.columns)} columns")
+    logger.info(f"Loaded dynamics.parquet: {len(dynamics_df):,} rows, {len(dynamics_df.columns)} columns")
 
     start = time.time()
-    df = compute_physics(observations, config, engines, args.force)
+    df = compute_physics(vector_df, geometry_df, dynamics_df, config)
     elapsed = time.time() - start
 
     if len(df) > 0:

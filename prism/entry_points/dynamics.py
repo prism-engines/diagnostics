@@ -3,37 +3,34 @@
 PRISM Dynamics Entry Point
 ==========================
 
-Computes temporal dynamics and state transitions using ALL state engines.
+Answers: HOW is it moving through behavioral space?
 
-Engines:
-    State engines:
-        - granger: Granger causality
-        - cross_correlation: Cross-correlation analysis
-        - cointegration: Cointegration testing
-        - dtw: Dynamic time warping
-        - dmd: Dynamic mode decomposition
-        - transfer_entropy: Information transfer
-        - coupled_inertia: Coupling dynamics
-        - trajectory: Trajectory analysis
+REQUIRES: vector.parquet AND geometry.parquet
 
-    Dynamics engines:
-        - embedding: Embedding dimension
-        - phase_space: Phase space reconstruction
-        - lyapunov: Lyapunov exponents
+Computes motion through the manifold that geometry discovered.
+The key metric is hd_slope: velocity of coherence loss.
 
-    Temporal engines:
-        - energy_dynamics: Energy evolution
-        - tension_dynamics: Tension evolution
-        - phase_detector: Phase detection
-        - break_detector: Structural breaks
-        - cohort_aggregator: Cohort-level dynamics
+Without geometry, there is no manifold.
+Without a manifold, hd_slope is meaningless.
+
+Output:
+    data/dynamics.parquet - ONE ROW PER ENTITY with:
+        - hd_slope: THE KEY METRIC - velocity of coherence loss
+        - hd_slope_r_squared: Fit quality (>0.7 = linear degradation)
+        - hd_velocity_mean: Average velocity in behavioral space
+        - hd_acceleration_mean: Is degradation speeding up?
+        - n_regimes: Number of behavioral regimes detected
+        - trajectory_path_length: Total distance traveled
+        - trajectory_tortuosity: Path length / displacement
+
+hd_slope is ONE number per entity:
+    - Computed across ALL signals (not per signal!)
+    - Uses Mahalanobis distance (from geometry's covariance)
+    - Measures velocity of coherence loss in behavioral space
 
 Usage:
     python -m prism.entry_points.dynamics
     python -m prism.entry_points.dynamics --force
-
-Output:
-    data/dynamics.parquet - Temporal dynamics per (entity, signal, window)
 """
 
 import argparse
@@ -41,19 +38,17 @@ import logging
 import sys
 import time
 import yaml
-from datetime import datetime
+import json
 from pathlib import Path
-from typing import Dict, List, Optional, Any
-import warnings
+from typing import Dict, Any, Optional, Tuple
 
 import numpy as np
-import pandas as pd
 import polars as pl
+from scipy.stats import linregress
 
-from prism.db.parquet_store import get_path, ensure_directory, OBSERVATIONS
+from prism.core.dependencies import check_dependencies
+from prism.db.parquet_store import get_path, ensure_directory, VECTOR, GEOMETRY, DYNAMICS
 from prism.db.polars_io import read_parquet, write_parquet_atomic
-
-warnings.filterwarnings('ignore')
 
 logging.basicConfig(
     level=logging.INFO,
@@ -64,120 +59,11 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# ENGINE IMPORTS
-# =============================================================================
-
-def import_engines(config: Dict[str, Any]):
-    """
-    Import dynamics engines based on config selection.
-
-    Config structure:
-        engines:
-          dynamics:
-            embedding: true
-            phase_space: false
-            ...
-
-    Note: Class-based pairwise engines (granger, cross_correlation, cointegration,
-    dtw, dmd, transfer_entropy) are stored separately for entity-level computation.
-    """
-    signal_engines = {}  # Engines that work on single signals
-    pairwise_engines = {}  # Class-based engines for entity matrices
-    engine_config = config.get('engines', {}).get('dynamics', {})
-
-    # If no config, enable all engines by default
-    if not engine_config:
-        engine_config = {k: True for k in [
-            'embedding', 'phase_space', 'lyapunov', 'break_detector',
-            'granger', 'cross_correlation', 'cointegration', 'dtw',
-            'dmd', 'transfer_entropy', 'trajectory',
-        ]}
-
-    # Dynamics engines (single signal)
-    if engine_config.get('embedding', True):
-        try:
-            from prism.engines.dynamics import compute_embedding
-            signal_engines['embedding'] = compute_embedding
-        except ImportError:
-            pass
-
-    if engine_config.get('phase_space', True):
-        try:
-            from prism.engines.dynamics import compute_phase_space
-            signal_engines['phase_space'] = compute_phase_space
-        except ImportError:
-            pass
-
-    if engine_config.get('lyapunov', True):
-        try:
-            from prism.engines.dynamics import compute_lyapunov
-            signal_engines['lyapunov'] = compute_lyapunov
-        except ImportError:
-            pass
-
-    # Break detector (single signal)
-    if engine_config.get('break_detector', True):
-        try:
-            from prism.engines.state.break_detector import compute_breaks
-            signal_engines['break_detector'] = compute_breaks
-        except ImportError:
-            pass
-
-    # Pairwise class-based engines (entity matrices)
-    if engine_config.get('granger', True):
-        try:
-            from prism.engines.state.granger import GrangerEngine
-            pairwise_engines['granger'] = GrangerEngine()
-        except ImportError:
-            pass
-
-    if engine_config.get('cross_correlation', True):
-        try:
-            from prism.engines.state.cross_correlation import CrossCorrelationEngine
-            pairwise_engines['cross_correlation'] = CrossCorrelationEngine()
-        except ImportError:
-            pass
-
-    if engine_config.get('cointegration', True):
-        try:
-            from prism.engines.state.cointegration import CointegrationEngine
-            pairwise_engines['cointegration'] = CointegrationEngine()
-        except ImportError:
-            pass
-
-    if engine_config.get('dtw', True):
-        try:
-            from prism.engines.state.dtw import DTWEngine
-            pairwise_engines['dtw'] = DTWEngine()
-        except ImportError:
-            pass
-
-    if engine_config.get('dmd', True):
-        try:
-            from prism.engines.state.dmd import DMDEngine
-            pairwise_engines['dmd'] = DMDEngine()
-        except ImportError:
-            pass
-
-    if engine_config.get('transfer_entropy', True):
-        try:
-            from prism.engines.state.transfer_entropy import TransferEntropyEngine
-            pairwise_engines['transfer_entropy'] = TransferEntropyEngine()
-        except ImportError:
-            pass
-
-    logger.info(f"  Signal engines: {len(signal_engines)}, Pairwise engines: {len(pairwise_engines)}")
-    return signal_engines, pairwise_engines
-
-
-# =============================================================================
 # CONFIG
 # =============================================================================
 
 DEFAULT_CONFIG = {
-    'min_samples_dynamics': 100,
-    'window_size': None,
-    'stride': None,
+    'min_samples_dynamics': 10,
 }
 
 
@@ -190,52 +76,327 @@ def load_config(data_path: Path) -> Dict[str, Any]:
         with open(config_path) as f:
             user_config = yaml.safe_load(f) or {}
 
-        # Extract relevant settings
         if 'min_samples_dynamics' in user_config:
-            config['min_samples'] = user_config['min_samples_dynamics']
-        elif 'min_samples' in user_config:
-            config['min_samples'] = user_config['min_samples']
-
-        # Store engine config
-        config['engines'] = user_config.get('engines', {})
+            config['min_samples_dynamics'] = user_config['min_samples_dynamics']
 
     return config
 
 
 # =============================================================================
-# RESULT FLATTENING
+# BEHAVIORAL VECTOR CONSTRUCTION
 # =============================================================================
 
-def flatten_result(result: Any, prefix: str) -> Dict[str, float]:
-    """Flatten engine result to dict of floats."""
-    flat = {}
+def build_behavioral_matrix(
+    vector_df: pl.DataFrame,
+    entity_id: str,
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], list]:
+    """
+    Build behavioral matrix for one entity.
 
-    if result is None:
-        return flat
+    Returns:
+        (feature_matrix, timestamps, metric_cols) or (None, None, [])
 
-    if isinstance(result, dict):
-        for k, v in result.items():
-            if isinstance(v, (int, float, np.integer, np.floating)):
-                val = float(v)
-                if np.isfinite(val):
-                    flat[f"{prefix}_{k}"] = val
-            elif isinstance(v, np.ndarray) and v.size == 1:
-                val = float(v.item())
-                if np.isfinite(val):
-                    flat[f"{prefix}_{k}"] = val
-    elif hasattr(result, '__dataclass_fields__'):
-        for k in result.__dataclass_fields__:
-            v = getattr(result, k)
-            if isinstance(v, (int, float, np.integer, np.floating)):
-                val = float(v)
-                if np.isfinite(val):
-                    flat[f"{prefix}_{k}"] = val
-    elif isinstance(result, (int, float, np.integer, np.floating)):
-        val = float(result)
-        if np.isfinite(val):
-            flat[prefix] = val
+    Shape of feature_matrix: (n_signals, n_metrics)
+    Each row is a signal's behavioral fingerprint (155+ metrics)
+    """
+    entity_data = vector_df.filter(pl.col('entity_id') == entity_id)
 
-    return flat
+    if len(entity_data) == 0:
+        return None, None, []
+
+    # Identify metric columns
+    id_cols = {'entity_id', 'signal_id', 'window_start', 'window_end', 'n_samples'}
+    metric_cols = [c for c in entity_data.columns
+                   if c not in id_cols
+                   and entity_data[c].dtype in [pl.Float64, pl.Float32, pl.Int64, pl.Int32]]
+
+    if not metric_cols:
+        return None, None, []
+
+    # Build feature matrix
+    feature_matrix = entity_data.select(metric_cols).to_numpy()
+    feature_matrix = np.nan_to_num(feature_matrix, nan=0.0, posinf=0.0, neginf=0.0)
+
+    # Timestamps (signal index as proxy)
+    timestamps = np.arange(len(entity_data), dtype=float)
+
+    return feature_matrix, timestamps, metric_cols
+
+
+def extract_covariance_inverse(geometry_df: pl.DataFrame, entity_id: str) -> Optional[np.ndarray]:
+    """
+    Extract covariance inverse from geometry for Mahalanobis distance.
+    """
+    entity_geom = geometry_df.filter(pl.col('entity_id') == entity_id)
+
+    if len(entity_geom) == 0:
+        return None
+
+    if 'covariance_inverse_json' not in entity_geom.columns:
+        return None
+
+    try:
+        json_str = entity_geom['covariance_inverse_json'][0]
+        if json_str is None:
+            return None
+        cov_inv = np.array(json.loads(json_str))
+        return cov_inv
+    except Exception:
+        return None
+
+
+def extract_cluster_centers(geometry_df: pl.DataFrame, entity_id: str) -> Optional[np.ndarray]:
+    """Extract cluster centers from geometry for regime detection."""
+    entity_geom = geometry_df.filter(pl.col('entity_id') == entity_id)
+
+    if len(entity_geom) == 0:
+        return None
+
+    if 'cluster_centers_json' not in entity_geom.columns:
+        return None
+
+    try:
+        json_str = entity_geom['cluster_centers_json'][0]
+        if json_str is None:
+            return None
+        centers = np.array(json.loads(json_str))
+        return centers
+    except Exception:
+        return None
+
+
+def extract_pca_components(geometry_df: pl.DataFrame, entity_id: str) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    """Extract PCA components and mean from geometry."""
+    entity_geom = geometry_df.filter(pl.col('entity_id') == entity_id)
+
+    if len(entity_geom) == 0:
+        return None
+
+    if 'pca_components_json' not in entity_geom.columns:
+        return None
+
+    try:
+        components_str = entity_geom['pca_components_json'][0]
+        mean_str = entity_geom['pca_mean_json'][0]
+        if components_str is None or mean_str is None:
+            return None
+        components = np.array(json.loads(components_str))
+        mean = np.array(json.loads(mean_str))
+        return components, mean
+    except Exception:
+        return None
+
+
+# =============================================================================
+# MAHALANOBIS DISTANCE
+# =============================================================================
+
+def mahalanobis_distance(x: np.ndarray, y: np.ndarray, cov_inv: np.ndarray) -> float:
+    """
+    Compute Mahalanobis distance between two points.
+
+    This measures distance ON THE MANIFOLD, not in raw space.
+
+    d² = (x-y)ᵀ Σ⁻¹ (x-y)
+    """
+    diff = x - y
+
+    # Ensure dimensions match
+    if len(diff) != cov_inv.shape[0]:
+        # Fall back to Euclidean
+        return float(np.linalg.norm(diff))
+
+    try:
+        d_squared = np.dot(np.dot(diff, cov_inv), diff)
+        return float(np.sqrt(max(0, d_squared)))
+    except Exception:
+        return float(np.linalg.norm(diff))
+
+
+# =============================================================================
+# HD_SLOPE COMPUTATION
+# =============================================================================
+
+def compute_hd_slope(
+    entity_id: str,
+    vector_df: pl.DataFrame,
+    geometry_df: pl.DataFrame,
+) -> Dict[str, Any]:
+    """
+    Compute hd_slope for ONE entity across ALL signals.
+
+    hd_slope = d(distance_from_baseline) / dt
+
+    Where distance is measured IN THE BEHAVIORAL MANIFOLD,
+    not in raw signal space.
+
+    This is THE KEY METRIC of PRISM.
+    """
+    # Get behavioral matrix
+    feature_matrix, timestamps, _ = build_behavioral_matrix(vector_df, entity_id)
+
+    if feature_matrix is None or len(feature_matrix) < 2:
+        return {}
+
+    n_timestamps, n_features = feature_matrix.shape
+
+    # Get covariance inverse from geometry (for Mahalanobis)
+    cov_inv = extract_covariance_inverse(geometry_df, entity_id)
+    use_mahalanobis = cov_inv is not None and cov_inv.shape[0] == n_features
+
+    # Baseline = first observation (healthy state)
+    baseline = feature_matrix[0]
+
+    # Compute distance from baseline at each timestamp
+    distances = np.zeros(n_timestamps)
+    for t in range(n_timestamps):
+        if use_mahalanobis:
+            distances[t] = mahalanobis_distance(feature_matrix[t], baseline, cov_inv)
+        else:
+            distances[t] = float(np.linalg.norm(feature_matrix[t] - baseline))
+
+    # Fit linear regression: distance = hd_slope * time + intercept
+    try:
+        slope, intercept, r_value, p_value, std_err = linregress(timestamps, distances)
+    except Exception:
+        return {}
+
+    # Velocity and acceleration
+    velocity = np.gradient(distances, timestamps)
+    acceleration = np.gradient(velocity, timestamps)
+
+    return {
+        'entity_id': entity_id,
+        'hd_slope': float(slope),                    # THE KEY METRIC
+        'hd_slope_intercept': float(intercept),
+        'hd_slope_r_squared': float(r_value ** 2),
+        'hd_slope_p_value': float(p_value),
+        'hd_slope_std_err': float(std_err),
+        'hd_initial_distance': float(distances[0]),  # Should be ~0
+        'hd_final_distance': float(distances[-1]),
+        'hd_max_distance': float(np.max(distances)),
+        'hd_velocity_mean': float(np.mean(velocity)),
+        'hd_velocity_std': float(np.std(velocity)),
+        'hd_acceleration_mean': float(np.mean(acceleration)),
+        'hd_acceleration_std': float(np.std(acceleration)),
+        'manifold_dimension': n_features,
+        'distance_metric': 'mahalanobis' if use_mahalanobis else 'euclidean',
+    }
+
+
+# =============================================================================
+# REGIME DETECTION
+# =============================================================================
+
+def detect_regime_transitions(
+    entity_id: str,
+    vector_df: pl.DataFrame,
+    geometry_df: pl.DataFrame,
+) -> Dict[str, Any]:
+    """
+    Detect when entity transitions between behavioral regimes.
+
+    Regimes are defined by geometry's clustering.
+    Transitions are detected by tracking cluster membership over time.
+    """
+    # Get behavioral matrix
+    feature_matrix, timestamps, _ = build_behavioral_matrix(vector_df, entity_id)
+
+    if feature_matrix is None or len(feature_matrix) < 2:
+        return {}
+
+    # Get cluster centers from geometry
+    cluster_centers = extract_cluster_centers(geometry_df, entity_id)
+
+    if cluster_centers is None or len(cluster_centers) == 0:
+        return {'n_regimes': 0, 'n_transitions': 0}
+
+    n_clusters = len(cluster_centers)
+
+    # Check dimension compatibility
+    if cluster_centers.shape[1] != feature_matrix.shape[1]:
+        return {'n_regimes': 0, 'n_transitions': 0}
+
+    # Assign each timestamp to nearest cluster
+    regime_assignments = []
+    for v in feature_matrix:
+        distances = [np.linalg.norm(v - c) for c in cluster_centers]
+        regime = int(np.argmin(distances))
+        regime_assignments.append(regime)
+
+    # Detect transitions
+    n_transitions = 0
+    for i in range(1, len(regime_assignments)):
+        if regime_assignments[i] != regime_assignments[i-1]:
+            n_transitions += 1
+
+    # Time in each regime
+    regime_counts = {}
+    for r in regime_assignments:
+        regime_counts[r] = regime_counts.get(r, 0) + 1
+
+    return {
+        'n_regimes': n_clusters,
+        'n_transitions': n_transitions,
+        'final_regime': regime_assignments[-1] if regime_assignments else -1,
+        'regime_entropy': float(-sum(
+            (c/len(regime_assignments)) * np.log(c/len(regime_assignments) + 1e-10)
+            for c in regime_counts.values()
+        )),
+    }
+
+
+# =============================================================================
+# TRAJECTORY ANALYSIS
+# =============================================================================
+
+def analyze_trajectory(
+    entity_id: str,
+    vector_df: pl.DataFrame,
+    geometry_df: pl.DataFrame,
+) -> Dict[str, Any]:
+    """
+    Analyze the trajectory through behavioral space.
+
+    Uses geometry's PCA to project onto principal components.
+    """
+    # Get behavioral matrix
+    feature_matrix, timestamps, _ = build_behavioral_matrix(vector_df, entity_id)
+
+    if feature_matrix is None or len(feature_matrix) < 2:
+        return {}
+
+    # Get PCA from geometry
+    pca_data = extract_pca_components(geometry_df, entity_id)
+
+    if pca_data is not None:
+        components, mean = pca_data
+
+        # Check dimension compatibility
+        if components.shape[1] == feature_matrix.shape[1]:
+            # Project onto principal components
+            centered = feature_matrix - mean
+            projected = np.dot(centered, components.T)  # (T, n_components)
+        else:
+            projected = feature_matrix
+    else:
+        projected = feature_matrix
+
+    # Compute trajectory metrics
+    path_segments = np.diff(projected, axis=0)
+    path_lengths = np.linalg.norm(path_segments, axis=1)
+    path_length = float(np.sum(path_lengths))
+
+    displacement = float(np.linalg.norm(projected[-1] - projected[0]))
+
+    # Tortuosity = path_length / displacement (1 = straight line)
+    tortuosity = path_length / displacement if displacement > 1e-10 else float('inf')
+
+    return {
+        'trajectory_path_length': path_length,
+        'trajectory_displacement': displacement,
+        'trajectory_tortuosity': min(tortuosity, 1000.0),  # Cap extreme values
+    }
 
 
 # =============================================================================
@@ -243,107 +404,63 @@ def flatten_result(result: Any, prefix: str) -> Dict[str, float]:
 # =============================================================================
 
 def compute_dynamics(
-    observations: pl.DataFrame,
+    vector_df: pl.DataFrame,
+    geometry_df: pl.DataFrame,
     config: Dict[str, Any],
-    signal_engines: Dict[str, Any],
-    pairwise_engines: Dict[str, Any],
-    force: bool = False,
 ) -> pl.DataFrame:
     """
-    Compute dynamics metrics for all signals.
+    Compute all dynamics metrics for all entities.
 
-    Args:
-        observations: Raw observations
-        config: Domain config
-        signal_engines: Dict of compute functions for single signals
-        pairwise_engines: Dict of class-based engines for entity matrices
-        force: Recompute all
+    Output: ONE ROW PER ENTITY (not per signal!)
 
-    Returns:
-        DataFrame with dynamics metrics
+    This is where hd_slope is computed - the velocity of coherence loss
+    across the FULL behavioral space.
     """
-    min_samples = config.get('min_samples_dynamics', 100)
+    min_samples = config.get('min_samples_dynamics', 10)
 
-    # Group by entity+signal
-    signals = observations.group_by(['entity_id', 'signal_id']).agg([
-        pl.col('value').alias('values'),
-        pl.col('timestamp').alias('timestamps'),
-    ])
+    entities = vector_df.select('entity_id').unique()['entity_id'].to_list()
+    n_entities = len(entities)
 
-    n_signals = len(signals)
-    n_engines = len(signal_engines) + len(pairwise_engines)
-    logger.info(f"Processing {n_signals} signals with {n_engines} engines")
+    logger.info(f"Computing dynamics for {n_entities} entities")
+    logger.info("Using geometry's covariance for Mahalanobis distance")
 
     results = []
 
-    for i, row in enumerate(signals.iter_rows(named=True)):
-        entity_id = row['entity_id']
-        signal_id = row['signal_id']
-        values = np.array(row['values'], dtype=float)
-        timestamps = np.array(row['timestamps'], dtype=float)
-
-        # Sort and clean
-        sort_idx = np.argsort(timestamps)
-        values = values[sort_idx]
-        timestamps = timestamps[sort_idx]
-
-        valid = ~np.isnan(values)
-        values = values[valid]
-        timestamps = timestamps[valid]
-
-        if len(values) < min_samples:
+    for i, entity_id in enumerate(entities):
+        # Check minimum samples
+        entity_data = vector_df.filter(pl.col('entity_id') == entity_id)
+        if len(entity_data) < min_samples:
             continue
 
-        row_data = {
-            'entity_id': entity_id,
-            'signal_id': signal_id,
-            'n_samples': len(values),
-            'window_start': float(timestamps[0]),
-            'window_end': float(timestamps[-1]),
-        }
+        # Core metric: hd_slope
+        hd = compute_hd_slope(entity_id, vector_df, geometry_df)
+        if not hd:
+            continue
 
-        # Run signal-level dynamics engines
-        for engine_name, compute_fn in signal_engines.items():
-            try:
-                result = compute_fn(values)
-                flat = flatten_result(result, engine_name)
-                row_data.update(flat)
-            except Exception:
-                pass
+        # Regime detection
+        regimes = detect_regime_transitions(entity_id, vector_df, geometry_df)
 
-        # Compute trend metrics
-        try:
-            x = np.arange(len(values))
-            slope, intercept = np.polyfit(x, values, 1)
-            row_data['trend_slope'] = float(slope)
-            row_data['trend_intercept'] = float(intercept)
-            detrended = values - (slope * x + intercept)
-            row_data['detrended_variance'] = float(np.var(detrended))
-        except Exception:
-            pass
+        # Trajectory analysis
+        trajectory = analyze_trajectory(entity_id, vector_df, geometry_df)
 
-        # Velocity and acceleration
-        try:
-            velocity = np.diff(values)
-            acceleration = np.diff(velocity)
-            row_data['velocity_mean'] = float(np.mean(velocity))
-            row_data['velocity_std'] = float(np.std(velocity))
-            row_data['acceleration_mean'] = float(np.mean(acceleration))
-            row_data['acceleration_std'] = float(np.std(acceleration))
-        except Exception:
-            pass
+        # Combine all metrics
+        row = {**hd, **regimes, **trajectory}
+        results.append(row)
 
-        results.append(row_data)
-
-        if (i + 1) % 10 == 0:
-            logger.info(f"  Processed {i + 1}/{n_signals} signals")
+        if (i + 1) % 50 == 0:
+            logger.info(f"  Processed {i + 1}/{n_entities} entities")
 
     if not results:
-        logger.warning("No signals with sufficient data")
+        logger.warning("No entities with sufficient data for dynamics")
         return pl.DataFrame()
 
     df = pl.DataFrame(results)
-    logger.info(f"Dynamics: {len(df)} rows, {len(df.columns)} columns")
+    logger.info(f"Dynamics: {len(df)} rows (one per entity), {len(df.columns)} columns")
+
+    # Report distance metric usage
+    if 'distance_metric' in df.columns:
+        mahal_count = df.filter(pl.col('distance_metric') == 'mahalanobis').height
+        logger.info(f"  Mahalanobis distance used: {mahal_count}/{len(df)} entities")
 
     return df
 
@@ -354,7 +471,7 @@ def compute_dynamics(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="PRISM Dynamics - Temporal dynamics computation"
+        description="PRISM Dynamics - HOW is it moving? (requires geometry)"
     )
     parser.add_argument('--force', '-f', action='store_true',
                         help='Recompute even if output exists')
@@ -363,17 +480,16 @@ def main():
 
     logger.info("=" * 60)
     logger.info("PRISM Dynamics Engine")
+    logger.info("HOW is it moving through behavioral space?")
     logger.info("=" * 60)
 
     ensure_directory()
+    data_path = get_path(VECTOR).parent
 
-    obs_path = get_path(OBSERVATIONS)
-    if not obs_path.exists():
-        logger.error("observations.parquet not found")
-        sys.exit(1)
+    # Check dependencies (HARD FAIL if geometry missing)
+    check_dependencies('dynamics', data_path)
 
-    data_path = obs_path.parent
-    output_path = data_path / 'dynamics.parquet'
+    output_path = get_path(DYNAMICS)
 
     if output_path.exists() and not args.force:
         logger.info("dynamics.parquet exists, use --force to recompute")
@@ -381,15 +497,18 @@ def main():
 
     config = load_config(data_path)
 
-    logger.info("Loading engines from config...")
-    signal_engines, pairwise_engines = import_engines(config)
-    logger.info(f"Total engines: {len(signal_engines) + len(pairwise_engines)}")
+    # Load BOTH required inputs
+    vector_path = get_path(VECTOR)
+    geometry_path = get_path(GEOMETRY)
 
-    observations = read_parquet(obs_path)
-    logger.info(f"Loaded {len(observations):,} observations")
+    vector_df = read_parquet(vector_path)
+    geometry_df = read_parquet(geometry_path)
+
+    logger.info(f"Loaded vector.parquet: {len(vector_df):,} rows, {len(vector_df.columns)} columns")
+    logger.info(f"Loaded geometry.parquet: {len(geometry_df):,} rows, {len(geometry_df.columns)} columns")
 
     start = time.time()
-    df = compute_dynamics(observations, config, signal_engines, pairwise_engines, args.force)
+    df = compute_dynamics(vector_df, geometry_df, config)
     elapsed = time.time() - start
 
     if len(df) > 0:

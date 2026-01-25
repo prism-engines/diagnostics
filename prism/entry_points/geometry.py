@@ -3,54 +3,47 @@
 PRISM Geometry Entry Point
 ==========================
 
-Computes structural relationships between signals using ALL geometry engines.
+Answers: WHERE does the entity live in behavioral space?
 
-Engines (13 total):
-    Class-based:
-        - PCAEngine: Principal components, loadings, variance explained
-        - MSTEngine: Minimum spanning tree, network metrics
-        - ClusteringEngine: Hierarchical/K-means clustering
-        - LOFEngine: Local outlier factor
-        - DistanceEngine: Euclidean/Mahalanobis/Cosine distances
-        - ConvexHullEngine: Geometric enclosure
-        - CopulaEngine: Dependency structure
-        - MutualInformationEngine: Non-linear dependence
-        - BarycenterEngine: Centroid metrics
+REQUIRES: vector.parquet
 
-    Function-based:
-        - compute_coupling_matrix: Laplace domain coupling
-        - compute_divergence: Distribution divergence (KL, JS)
-        - discover_modes: Behavioral mode discovery
-        - compute_snapshot: Point-in-time structure
+Transforms 24 independent signals into ONE unified behavioral manifold.
+Computes the structure that dynamics needs for Mahalanobis distance.
+
+Output:
+    data/geometry.parquet - One row per entity with:
+        - Covariance structure (for Mahalanobis distance in dynamics)
+        - PCA components and variance explained
+        - Cluster centers (for regime detection)
+        - Effective dimensionality
+        - Correlation structure
+
+The manifold concept:
+    RAW SIGNAL SPACE (24D):     BEHAVIORAL MANIFOLD:
+    - Each axis = one sensor    - Axes = principal components
+    - Euclidean misleading      - Distance accounts for correlations
+    - Correlated = double-count - Structure reveals healthy vs degraded
 
 Usage:
     python -m prism.entry_points.geometry
     python -m prism.entry_points.geometry --force
-    python -m prism.entry_points.geometry --window 100
-
-Output:
-    data/geometry.parquet - Structural metrics per (entity, window)
 """
 
 import argparse
 import logging
 import sys
 import time
-import uuid
 import yaml
-from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any
-import warnings
+from typing import Dict, Any, Optional, Tuple
+import json
 
 import numpy as np
-import pandas as pd
 import polars as pl
 
-from prism.db.parquet_store import get_path, ensure_directory, OBSERVATIONS
+from prism.core.dependencies import check_dependencies
+from prism.db.parquet_store import get_path, ensure_directory, VECTOR, GEOMETRY
 from prism.db.polars_io import read_parquet, write_parquet_atomic
-
-warnings.filterwarnings('ignore')
 
 logging.basicConfig(
     level=logging.INFO,
@@ -61,107 +54,13 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# ENGINE IMPORTS
-# =============================================================================
-
-def import_engines(config: Dict[str, Any]):
-    """
-    Import geometry engines based on config selection.
-
-    Config structure:
-        engines:
-          geometry:
-            pca: true
-            mst: false
-            ...
-    """
-    engines = {}
-    engine_config = config.get('engines', {}).get('geometry', {})
-
-    # If no config, enable all engines by default
-    if not engine_config:
-        engine_config = {k: True for k in [
-            'pca', 'mst', 'clustering', 'lof', 'distance',
-            'convex_hull', 'copula', 'mutual_information', 'barycenter',
-        ]}
-
-    # Class-based geometry engines
-    if engine_config.get('pca', True):
-        try:
-            from prism.engines.geometry import PCAEngine
-            engines['pca'] = PCAEngine()
-        except ImportError:
-            pass
-
-    if engine_config.get('mst', True):
-        try:
-            from prism.engines.geometry import MSTEngine
-            engines['mst'] = MSTEngine()
-        except ImportError:
-            pass
-
-    if engine_config.get('clustering', True):
-        try:
-            from prism.engines.geometry import ClusteringEngine
-            engines['clustering'] = ClusteringEngine()
-        except ImportError:
-            pass
-
-    if engine_config.get('lof', True):
-        try:
-            from prism.engines.geometry import LOFEngine
-            engines['lof'] = LOFEngine()
-        except ImportError:
-            pass
-
-    if engine_config.get('distance', True):
-        try:
-            from prism.engines.geometry import DistanceEngine
-            engines['distance'] = DistanceEngine()
-        except ImportError:
-            pass
-
-    if engine_config.get('convex_hull', True):
-        try:
-            from prism.engines.geometry import ConvexHullEngine
-            engines['convex_hull'] = ConvexHullEngine()
-        except ImportError:
-            pass
-
-    if engine_config.get('copula', True):
-        try:
-            from prism.engines.geometry import CopulaEngine
-            engines['copula'] = CopulaEngine()
-        except ImportError:
-            pass
-
-    if engine_config.get('mutual_information', True):
-        try:
-            from prism.engines.geometry import MutualInformationEngine
-            engines['mutual_information'] = MutualInformationEngine()
-        except ImportError:
-            pass
-
-    if engine_config.get('barycenter', True):
-        try:
-            from prism.engines.geometry import BarycenterEngine
-            engines['barycenter'] = BarycenterEngine()
-        except ImportError:
-            pass
-
-    logger.info(f"  Loaded {len(engines)} geometry engines from config")
-    return engines
-
-
-# =============================================================================
 # CONFIG
 # =============================================================================
 
 DEFAULT_CONFIG = {
-    'min_samples_geometry': 30,
-    'min_signals': 2,
-    'window_size': None,
-    'stride': None,
+    'min_samples_geometry': 10,
+    'n_pca_components': 10,
+    'n_clusters': 3,
 }
 
 
@@ -174,105 +73,342 @@ def load_config(data_path: Path) -> Dict[str, Any]:
         with open(config_path) as f:
             user_config = yaml.safe_load(f) or {}
 
-        # Extract relevant settings
         if 'min_samples_geometry' in user_config:
-            config['min_samples'] = user_config['min_samples_geometry']
-        elif 'min_samples' in user_config:
-            config['min_samples'] = user_config['min_samples']
-
-        # Store engine config
-        config['engines'] = user_config.get('engines', {})
+            config['min_samples_geometry'] = user_config['min_samples_geometry']
 
     return config
 
 
 # =============================================================================
-# DATA PREPARATION
+# BEHAVIORAL VECTOR CONSTRUCTION
 # =============================================================================
 
-def prepare_entity_matrix(
-    observations: pl.DataFrame,
+def build_behavioral_matrix(
+    vector_df: pl.DataFrame,
     entity_id: str,
-    min_samples: int,
-) -> Optional[pd.DataFrame]:
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], list]:
     """
-    Prepare signal matrix for an entity.
+    Build the behavioral matrix for one entity.
+
+    The behavioral vector at each timestamp is the FULL state across all signals.
+    Shape: (n_timestamps, n_signals × n_metrics)
+
+    Args:
+        vector_df: Vector metrics with columns [entity_id, signal_id, window_start, ...]
+        entity_id: Entity to extract
 
     Returns:
-        DataFrame with columns=signals, rows=timestamps, or None
+        (behavioral_matrix, timestamps, column_names) or (None, None, [])
     """
-    entity_obs = observations.filter(pl.col('entity_id') == entity_id)
+    entity_data = vector_df.filter(pl.col('entity_id') == entity_id)
 
-    if len(entity_obs) == 0:
-        return None
+    if len(entity_data) == 0:
+        return None, None, []
 
-    # Aggregate duplicates (same timestamp+signal) by taking mean
-    entity_obs = entity_obs.group_by(['timestamp', 'signal_id']).agg(
-        pl.col('value').mean()
-    )
+    # Identify metric columns (exclude identifiers)
+    id_cols = {'entity_id', 'signal_id', 'window_start', 'window_end', 'n_samples'}
+    metric_cols = [c for c in entity_data.columns
+                   if c not in id_cols
+                   and entity_data[c].dtype in [pl.Float64, pl.Float32, pl.Int64, pl.Int32]]
 
-    # Pivot to wide format
+    if not metric_cols:
+        return None, None, []
+
+    # Get unique signals and timestamps
+    signals = sorted(entity_data['signal_id'].unique().to_list())
+    n_signals = len(signals)
+
+    # Use window_start as timestamp proxy
+    if 'window_start' not in entity_data.columns:
+        return None, None, []
+
+    # For each signal, we have one vector of metrics
+    # The behavioral state is the concatenation across all signals
+    # Build: (n_signals, n_metrics) matrix for this entity
+
+    # Actually, in current vector.parquet structure:
+    # - Each row is (entity_id, signal_id) with 155+ metrics
+    # - We don't have timestamps per row, we have one row per signal
+
+    # So the "behavioral vector" for an entity is:
+    # Concatenate all signals' metrics into one big vector
+
+    # Build feature matrix: (n_signals, n_metrics)
+    feature_matrix = entity_data.select(metric_cols).to_numpy()
+    feature_matrix = np.nan_to_num(feature_matrix, nan=0.0, posinf=0.0, neginf=0.0)
+
+    # Column names for reference
+    col_names = metric_cols
+
+    # "Timestamp" is signal index for now (until we have proper temporal structure)
+    timestamps = np.arange(len(entity_data), dtype=float)
+
+    return feature_matrix, timestamps, col_names
+
+
+# =============================================================================
+# GEOMETRY COMPUTATION
+# =============================================================================
+
+def compute_pca(feature_matrix: np.ndarray, n_components: int = 10) -> Dict[str, Any]:
+    """
+    Compute PCA on feature matrix.
+
+    Returns components, variance explained, and projections.
+    """
+    n_samples, n_features = feature_matrix.shape
+    n_components = min(n_components, n_samples, n_features)
+
+    # Center the data
+    mean = np.mean(feature_matrix, axis=0)
+    centered = feature_matrix - mean
+
+    # Compute covariance
+    cov = np.cov(centered.T)
+
+    # Eigendecomposition
     try:
-        wide = entity_obs.pivot(
-            values='value',
-            index='timestamp',
-            on='signal_id',
-        ).sort('timestamp')
+        eigenvalues, eigenvectors = np.linalg.eigh(cov)
+
+        # Sort by eigenvalue (descending)
+        idx = np.argsort(eigenvalues)[::-1]
+        eigenvalues = eigenvalues[idx]
+        eigenvectors = eigenvectors[:, idx]
+
+        # Take top components
+        components = eigenvectors[:, :n_components].T  # (n_components, n_features)
+        explained_variance = eigenvalues[:n_components]
+        total_variance = np.sum(eigenvalues)
+
+        if total_variance > 1e-10:
+            explained_ratio = explained_variance / total_variance
+        else:
+            explained_ratio = np.zeros(n_components)
+
+        return {
+            'pca_components': components,
+            'pca_mean': mean,
+            'pca_explained_variance': explained_variance,
+            'pca_explained_ratio': explained_ratio,
+            'pca_total_variance': total_variance,
+            'pca_n_components': n_components,
+        }
     except Exception:
-        return None
-
-    # Convert to pandas
-    df = wide.to_pandas().set_index('timestamp')
-
-    # Drop columns with too few samples
-    valid_cols = [c for c in df.columns if df[c].notna().sum() >= min_samples]
-    if len(valid_cols) < 2:
-        return None
-
-    df = df[valid_cols].dropna()
-
-    if len(df) < min_samples:
-        return None
-
-    return df
+        return {}
 
 
-# =============================================================================
-# RESULT FLATTENING
-# =============================================================================
+def compute_covariance_structure(feature_matrix: np.ndarray) -> Dict[str, Any]:
+    """
+    Compute covariance matrix and related metrics.
 
-def flatten_engine_result(result: Dict[str, Any], prefix: str) -> Dict[str, float]:
-    """Flatten engine result dict to flat float dict."""
-    flat = {}
+    This is what dynamics uses for Mahalanobis distance.
+    """
+    n_samples, n_features = feature_matrix.shape
 
-    if result is None:
-        return flat
+    try:
+        cov = np.cov(feature_matrix.T)
 
-    for k, v in result.items():
-        if k in ('run_id', 'signals', 'signal_ids'):
-            continue
-        if isinstance(v, (int, float, np.integer, np.floating)):
-            val = float(v)
-            if np.isfinite(val):
-                flat[f"{prefix}_{k}"] = val
-        elif isinstance(v, np.ndarray):
-            if v.size == 1:
-                val = float(v.item())
-                if np.isfinite(val):
-                    flat[f"{prefix}_{k}"] = val
-            elif v.ndim == 1 and len(v) <= 10:
-                # Store small arrays as individual values
-                for i, val in enumerate(v):
-                    if np.isfinite(val):
-                        flat[f"{prefix}_{k}_{i}"] = float(val)
-            elif v.ndim == 2:
-                # For matrices, store summary stats
-                flat[f"{prefix}_{k}_mean"] = float(np.nanmean(v))
-                flat[f"{prefix}_{k}_std"] = float(np.nanstd(v))
-                flat[f"{prefix}_{k}_min"] = float(np.nanmin(v))
-                flat[f"{prefix}_{k}_max"] = float(np.nanmax(v))
+        # Ensure 2D
+        if cov.ndim == 0:
+            cov = np.array([[cov]])
+        elif cov.ndim == 1:
+            cov = np.diag(cov)
 
-    return flat
+        # Compute inverse (for Mahalanobis)
+        try:
+            # Regularize for numerical stability
+            cov_reg = cov + 1e-6 * np.eye(cov.shape[0])
+            cov_inv = np.linalg.inv(cov_reg)
+        except np.linalg.LinAlgError:
+            cov_inv = np.linalg.pinv(cov)
+
+        # Eigenvalues for effective dimensionality
+        eigenvalues = np.linalg.eigvalsh(cov)
+        eigenvalues = np.sort(eigenvalues)[::-1]
+        eigenvalues = eigenvalues[eigenvalues > 1e-10]
+
+        # Effective dimensionality (participation ratio)
+        if len(eigenvalues) > 0:
+            total_var = np.sum(eigenvalues)
+            p = eigenvalues / total_var
+            entropy = -np.sum(p * np.log(p + 1e-10))
+            effective_dim = np.exp(entropy)
+        else:
+            effective_dim = 0.0
+
+        return {
+            'covariance_matrix': cov,
+            'covariance_inverse': cov_inv,
+            'cov_trace': float(np.trace(cov)),
+            'cov_det_log': float(np.log(np.abs(np.linalg.det(cov)) + 1e-10)),
+            'cov_condition': float(np.linalg.cond(cov)) if cov.shape[0] > 1 else 1.0,
+            'effective_dimensionality': float(effective_dim),
+            'n_features': n_features,
+        }
+    except Exception as e:
+        logger.debug(f"Covariance computation failed: {e}")
+        return {'n_features': n_features}
+
+
+def compute_clustering(feature_matrix: np.ndarray, n_clusters: int = 3) -> Dict[str, Any]:
+    """
+    Compute clustering for regime detection.
+
+    Returns cluster centers and assignments.
+    """
+    n_samples, n_features = feature_matrix.shape
+
+    if n_samples < n_clusters:
+        return {}
+
+    try:
+        from scipy.cluster.hierarchy import linkage, fcluster
+        from scipy.spatial.distance import pdist
+
+        # Hierarchical clustering
+        distances = pdist(feature_matrix, metric='euclidean')
+        linkage_matrix = linkage(distances, method='ward')
+
+        # Get cluster assignments
+        labels = fcluster(linkage_matrix, n_clusters, criterion='maxclust') - 1
+
+        # Compute cluster centers
+        centers = np.zeros((n_clusters, n_features))
+        for i in range(n_clusters):
+            mask = labels == i
+            if np.any(mask):
+                centers[i] = np.mean(feature_matrix[mask], axis=0)
+
+        # Intra-cluster variance
+        intra_variance = 0.0
+        for i in range(n_clusters):
+            mask = labels == i
+            if np.any(mask):
+                cluster_points = feature_matrix[mask]
+                intra_variance += np.sum((cluster_points - centers[i]) ** 2)
+
+        return {
+            'cluster_centers': centers,
+            'cluster_labels': labels,
+            'n_clusters': n_clusters,
+            'cluster_intra_variance': float(intra_variance),
+        }
+    except Exception as e:
+        logger.debug(f"Clustering failed: {e}")
+        return {}
+
+
+def compute_correlation_structure(feature_matrix: np.ndarray) -> Dict[str, Any]:
+    """Compute correlation metrics."""
+    try:
+        corr = np.corrcoef(feature_matrix.T)
+
+        # Handle edge cases
+        if corr.ndim == 0:
+            return {'corr_mean': 0.0}
+
+        # Upper triangle (excluding diagonal)
+        n = corr.shape[0]
+        if n < 2:
+            return {'corr_mean': 0.0}
+
+        upper_tri = corr[np.triu_indices(n, k=1)]
+        upper_tri = upper_tri[np.isfinite(upper_tri)]
+
+        if len(upper_tri) == 0:
+            return {'corr_mean': 0.0}
+
+        return {
+            'corr_mean': float(np.mean(upper_tri)),
+            'corr_std': float(np.std(upper_tri)),
+            'corr_max': float(np.max(np.abs(upper_tri))),
+            'corr_min': float(np.min(upper_tri)),
+        }
+    except Exception:
+        return {}
+
+
+def compute_distance_metrics(feature_matrix: np.ndarray) -> Dict[str, Any]:
+    """Compute pairwise distance metrics."""
+    try:
+        from scipy.spatial.distance import pdist
+
+        distances = pdist(feature_matrix, metric='euclidean')
+
+        if len(distances) == 0:
+            return {}
+
+        # Centroid
+        centroid = np.mean(feature_matrix, axis=0)
+        centroid_distances = np.linalg.norm(feature_matrix - centroid, axis=1)
+
+        return {
+            'dist_mean': float(np.mean(distances)),
+            'dist_std': float(np.std(distances)),
+            'dist_max': float(np.max(distances)),
+            'dist_min': float(np.min(distances)),
+            'centroid_dist_mean': float(np.mean(centroid_distances)),
+            'centroid_dist_max': float(np.max(centroid_distances)),
+        }
+    except Exception:
+        return {}
+
+
+def compute_entity_geometry(
+    feature_matrix: np.ndarray,
+    config: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Compute full geometry for one entity.
+
+    Returns flattened dict of scalar metrics plus serialized matrices.
+    """
+    results = {}
+
+    # PCA
+    pca = compute_pca(feature_matrix, config.get('n_pca_components', 10))
+    if pca:
+        # Serialize matrices as JSON for storage
+        if 'pca_components' in pca:
+            results['pca_components_json'] = json.dumps(pca['pca_components'].tolist())
+            results['pca_mean_json'] = json.dumps(pca['pca_mean'].tolist())
+
+        if 'pca_explained_ratio' in pca:
+            for i, ratio in enumerate(pca['pca_explained_ratio'][:5]):
+                results[f'pca_var_explained_{i+1}'] = float(ratio)
+            results['pca_var_explained_cumsum_3'] = float(np.sum(pca['pca_explained_ratio'][:3]))
+            results['pca_var_explained_cumsum_5'] = float(np.sum(pca['pca_explained_ratio'][:5]))
+
+    # Covariance (critical for Mahalanobis)
+    cov = compute_covariance_structure(feature_matrix)
+    if cov:
+        if 'covariance_matrix' in cov:
+            results['covariance_matrix_json'] = json.dumps(cov['covariance_matrix'].tolist())
+        if 'covariance_inverse' in cov:
+            results['covariance_inverse_json'] = json.dumps(cov['covariance_inverse'].tolist())
+
+        for k in ['cov_trace', 'cov_det_log', 'cov_condition', 'effective_dimensionality', 'n_features']:
+            if k in cov:
+                results[k] = cov[k]
+
+    # Clustering (for regime detection)
+    clusters = compute_clustering(feature_matrix, config.get('n_clusters', 3))
+    if clusters:
+        if 'cluster_centers' in clusters:
+            results['cluster_centers_json'] = json.dumps(clusters['cluster_centers'].tolist())
+        for k in ['n_clusters', 'cluster_intra_variance']:
+            if k in clusters:
+                results[k] = clusters[k]
+
+    # Correlation structure
+    corr = compute_correlation_structure(feature_matrix)
+    results.update(corr)
+
+    # Distance metrics
+    dist = compute_distance_metrics(feature_matrix)
+    results.update(dist)
+
+    return results
 
 
 # =============================================================================
@@ -280,71 +416,59 @@ def flatten_engine_result(result: Dict[str, Any], prefix: str) -> Dict[str, floa
 # =============================================================================
 
 def compute_geometry(
-    observations: pl.DataFrame,
+    vector_df: pl.DataFrame,
     config: Dict[str, Any],
-    engines: Dict[str, Any],
-    force: bool = False,
 ) -> pl.DataFrame:
     """
-    Compute geometry metrics for all entities.
+    Compute geometry for all entities.
 
-    Args:
-        observations: Raw observations
-        config: Domain config
-        engines: Dict of engine instances
-        force: Recompute all
+    Output: ONE ROW PER ENTITY
 
-    Returns:
-        DataFrame with structural metrics per entity/window
+    Each row contains the manifold structure that dynamics needs:
+    - Covariance matrix (for Mahalanobis distance)
+    - PCA components (for trajectory projection)
+    - Cluster centers (for regime detection)
     """
-    min_samples = config.get('min_samples_geometry', 30)
-    min_signals = config.get('min_signals', 2)
+    min_samples = config.get('min_samples_geometry', 10)
 
-    entities = observations.select('entity_id').unique()['entity_id'].to_list()
+    entities = vector_df.select('entity_id').unique()['entity_id'].to_list()
     n_entities = len(entities)
-    n_engines = len(engines)
 
-    logger.info(f"Processing {n_entities} entities with {n_engines} engines")
+    logger.info(f"Computing geometry for {n_entities} entities")
 
     results = []
 
     for i, entity_id in enumerate(entities):
-        # Prepare entity data matrix
-        df = prepare_entity_matrix(observations, entity_id, min_samples)
+        # Build behavioral matrix for this entity
+        feature_matrix, timestamps, col_names = build_behavioral_matrix(vector_df, entity_id)
 
-        if df is None or len(df.columns) < min_signals:
+        if feature_matrix is None or len(feature_matrix) < min_samples:
             continue
 
-        run_id = str(uuid.uuid4())[:8]
+        # Compute geometry
+        geom = compute_entity_geometry(feature_matrix, config)
+
+        if not geom:
+            continue
 
         row_data = {
             'entity_id': entity_id,
-            'n_signals': len(df.columns),
-            'n_samples': len(df),
-            'window_start': float(df.index.min()),
-            'window_end': float(df.index.max()),
+            'n_signals': len(feature_matrix),
+            'n_metrics': feature_matrix.shape[1] if feature_matrix.ndim > 1 else 1,
         }
-
-        # Run all class-based engines
-        for engine_name, engine in engines.items():
-            try:
-                result = engine.run(df, run_id)
-                flat = flatten_engine_result(result, engine_name)
-                row_data.update(flat)
-            except Exception as e:
-                logger.debug(f"  {engine_name} failed for {entity_id}: {e}")
+        row_data.update(geom)
 
         results.append(row_data)
 
-        if (i + 1) % 5 == 0:
+        if (i + 1) % 50 == 0:
             logger.info(f"  Processed {i + 1}/{n_entities} entities")
 
     if not results:
-        logger.warning("No entities with sufficient data")
+        logger.warning("No entities with sufficient data for geometry")
         return pl.DataFrame()
 
     df = pl.DataFrame(results)
-    logger.info(f"Geometry: {len(df)} rows, {len(df.columns)} columns")
+    logger.info(f"Geometry: {len(df)} rows (one per entity), {len(df.columns)} columns")
 
     return df
 
@@ -355,7 +479,7 @@ def compute_geometry(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="PRISM Geometry - Structural relationship computation"
+        description="PRISM Geometry - WHERE does it live? (requires vector)"
     )
     parser.add_argument('--force', '-f', action='store_true',
                         help='Recompute even if output exists')
@@ -364,38 +488,30 @@ def main():
 
     logger.info("=" * 60)
     logger.info("PRISM Geometry Engine")
+    logger.info("WHERE does it live in behavioral space?")
     logger.info("=" * 60)
 
     ensure_directory()
+    data_path = get_path(VECTOR).parent
 
-    # Load observations
-    obs_path = get_path(OBSERVATIONS)
-    if not obs_path.exists():
-        logger.error(f"observations.parquet not found")
-        sys.exit(1)
+    # Check dependencies (HARD FAIL if vector missing)
+    check_dependencies('geometry', data_path)
 
-    data_path = obs_path.parent
-    output_path = data_path / 'geometry.parquet'
+    output_path = get_path(GEOMETRY)
 
     if output_path.exists() and not args.force:
         logger.info("geometry.parquet exists, use --force to recompute")
         return 0
 
-    # Load config
     config = load_config(data_path)
 
-    # Load engines from config
-    logger.info("Loading engines from config...")
-    engines = import_engines(config)
-    logger.info(f"Total engines: {len(engines)}")
+    # Load input
+    vector_path = get_path(VECTOR)
+    vector_df = read_parquet(vector_path)
+    logger.info(f"Loaded vector.parquet: {len(vector_df):,} rows, {len(vector_df.columns)} columns")
 
-    # Load data
-    observations = read_parquet(obs_path)
-    logger.info(f"Loaded {len(observations):,} observations")
-
-    # Compute
     start = time.time()
-    df = compute_geometry(observations, config, engines, args.force)
+    df = compute_geometry(vector_df, config)
     elapsed = time.time() - start
 
     if len(df) > 0:
