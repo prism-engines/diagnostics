@@ -83,7 +83,7 @@ def import_engines(config: Dict[str, Any]):
             'derivatives', 'hilbert', 'statistical', 'runs_test',
             'dirac', 'heaviside', 'structural',
             'laplace',  # Gradient, laplacian, divergence - key for geometry
-            # hd_slope moved to dynamics layer (operates on full behavioral space)
+            'hd_slope',  # Degradation rate - most important for prognosis
         ]}
 
     # Memory engines
@@ -286,7 +286,13 @@ def import_engines(config: Dict[str, Any]):
         except ImportError:
             pass
 
-    # NOTE: hd_slope is computed in dynamics layer (operates on full behavioral space)
+    # HD Slope - degradation rate (most important for prognosis)
+    if engine_config.get('hd_slope', True):
+        try:
+            from prism.engines.dynamics.hd_slope import compute_hd_slope
+            engines['hd_slope'] = compute_hd_slope
+        except ImportError:
+            pass
 
     logger.info(f"  Loaded {len(engines)} engines from config")
     return engines

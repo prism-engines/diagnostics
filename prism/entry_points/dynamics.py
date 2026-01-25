@@ -91,7 +91,6 @@ def import_engines(config: Dict[str, Any]):
             'embedding', 'phase_space', 'lyapunov', 'break_detector',
             'granger', 'cross_correlation', 'cointegration', 'dtw',
             'dmd', 'transfer_entropy', 'trajectory',
-            'hd_slope',  # Entity-level degradation in full behavioral space
         ]}
 
     # Dynamics engines (single signal)

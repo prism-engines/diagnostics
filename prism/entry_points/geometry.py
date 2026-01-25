@@ -83,7 +83,6 @@ def import_engines(config: Dict[str, Any]):
         engine_config = {k: True for k in [
             'pca', 'mst', 'clustering', 'lof', 'distance',
             'convex_hull', 'copula', 'mutual_information', 'barycenter',
-            'hd_slope',  # Degradation rate in full behavioral space
         ]}
 
     # Class-based geometry engines
@@ -334,20 +333,6 @@ def compute_geometry(
                 row_data.update(flat)
             except Exception as e:
                 logger.debug(f"  {engine_name} failed for {entity_id}: {e}")
-
-        # HD Slope: degradation rate in full behavioral space
-        # Measures velocity of coherence loss: d(||v - v₀||) / dt
-        if config.get('engines', {}).get('geometry', {}).get('hd_slope', True):
-            try:
-                from prism.engines.dynamics.hd_slope import compute_hd_slope_multivariate
-                feature_matrix = df.values  # (timestamps × signals)
-                timestamps = df.index.values.astype(float)
-                hd_result = compute_hd_slope_multivariate(feature_matrix, timestamps)
-                for k, v in hd_result.items():
-                    if isinstance(v, (int, float)) and np.isfinite(v):
-                        row_data[f"hd_slope_{k}"] = float(v)
-            except Exception as e:
-                logger.debug(f"  hd_slope failed for {entity_id}: {e}")
 
         results.append(row_data)
 
