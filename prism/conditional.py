@@ -93,7 +93,8 @@ STAGES: Dict[str, Stage] = {
         description='Energy/momentum metrics (T, V, H, L, p, G)',
         key_columns=['kinetic_energy', 'potential_energy', 'hamiltonian',
                      'lagrangian', 'momentum', 'gibbs', 'is_specific', 'units'],
-        always_run=True,
+        always_run=False,
+        requires=['labeled_signals_or_constants'],
     ),
     'systems': Stage(
         name='systems',
@@ -158,6 +159,34 @@ def has_velocity_field(spec: DataSpec) -> bool:
     return spec.spatial.type == SpatialType.VELOCITY_FIELD
 
 
+def has_labeled_signals_or_constants(spec: DataSpec) -> bool:
+    """
+    Check if we can compute any physics.
+
+    Requires EITHER:
+    - Labeled signals (velocity, position, temperature, etc.) for specific physics
+    - Physical constants (mass, spring_constant, etc.) for real physics
+    """
+    # Check for labeled signals
+    has_labels = spec.has_labeled_signals()
+
+    # Check for any physics-relevant constants
+    c = spec.constants
+    has_constants = any([
+        c.mass is not None,
+        c.spring_constant is not None,
+        c.moment_of_inertia is not None,
+        c.Cp is not None,
+        c.kinematic_viscosity is not None,
+        c.density is not None,
+    ])
+
+    # Check for pipe network (enables pipe physics)
+    has_pipes = spec.has_pipe_network()
+
+    return has_labels or has_constants or has_pipes
+
+
 def check_requirement(
     requirement: str,
     spec: DataSpec,
@@ -170,6 +199,8 @@ def check_requirement(
         return has_events(vector_df)
     elif requirement == 'velocity_field':
         return has_velocity_field(spec)
+    elif requirement == 'labeled_signals_or_constants':
+        return has_labeled_signals_or_constants(spec)
     else:
         logger.warning(f"Unknown requirement: {requirement}")
         return False
