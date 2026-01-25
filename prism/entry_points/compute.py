@@ -28,6 +28,7 @@ import argparse
 import logging
 import sys
 import time
+import yaml
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
@@ -40,6 +41,67 @@ from prism.db.parquet_store import get_path, ensure_directory, OBSERVATIONS
 from prism.db.polars_io import read_parquet, write_parquet_atomic
 
 warnings.filterwarnings('ignore')
+
+
+# =============================================================================
+# DEFAULT CONFIGURATION
+# =============================================================================
+
+DEFAULT_CONFIG = {
+    # Domain metadata
+    'domain': 'unknown',
+    'description': '',
+
+    # Sample thresholds
+    'min_samples': 50,           # Minimum samples for vector/physics
+    'min_samples_geometry': 30,  # Minimum samples for geometry pairs
+    'min_samples_dynamics': 100, # Minimum samples for dynamics
+
+    # Identifier columns
+    'entity_col': 'entity_id',
+    'signal_col': 'signal_id',
+    'time_col': 'timestamp',
+    'value_col': 'value',
+
+    # Engine settings
+    'engines': {
+        'hurst': True,
+        'entropy': True,
+        'spectral': True,
+        'garch': True,
+        'rqa': True,
+        'lyapunov': True,
+        'physics': True,
+    }
+}
+
+
+def load_config(data_path: Path) -> Dict[str, Any]:
+    """
+    Load domain configuration from config.yaml in the data directory.
+
+    Falls back to defaults if config doesn't exist.
+    """
+    config_path = data_path / 'config.yaml'
+
+    config = DEFAULT_CONFIG.copy()
+
+    if config_path.exists():
+        with open(config_path) as f:
+            user_config = yaml.safe_load(f) or {}
+
+        # Deep merge user config into defaults
+        for key, value in user_config.items():
+            if isinstance(value, dict) and key in config and isinstance(config[key], dict):
+                config[key].update(value)
+            else:
+                config[key] = value
+
+        logger.info(f"Loaded config from {config_path}")
+    else:
+        logger.info("No config.yaml found, using defaults")
+
+    return config
 
 logging.basicConfig(
     level=logging.INFO,
@@ -73,6 +135,7 @@ def get_output_path(file: str) -> Path:
 
 def compute_data_layer(
     observations: pl.DataFrame,
+    config: Dict[str, Any],
     force: bool = False,
 ) -> pl.DataFrame:
     """
@@ -112,6 +175,7 @@ def compute_data_layer(
 
 def compute_vector_layer(
     observations: pl.DataFrame,
+    config: Dict[str, Any],
     force: bool = False,
 ) -> pl.DataFrame:
     """
@@ -156,12 +220,12 @@ def compute_vector_layer(
         signal_id = row['signal_id']
         values = np.array(row['values'], dtype=float)
 
-        if len(values) < 20:
+        if len(values) < config.get('min_samples', 50):
             continue
 
         # Remove NaN
         values = values[~np.isnan(values)]
-        if len(values) < 20:
+        if len(values) < config.get('min_samples', 50):
             continue
 
         metrics = {
@@ -290,6 +354,7 @@ def compute_vector_layer(
 
 def compute_geometry_layer(
     observations: pl.DataFrame,
+    config: Dict[str, Any],
     force: bool = False,
 ) -> pl.DataFrame:
     """
@@ -332,7 +397,7 @@ def compute_geometry_layer(
                 signal_data[sid] = vals
                 min_len = min(min_len, len(vals))
 
-        if len(signal_data) < 2 or min_len < 30:
+        if len(signal_data) < 2 or min_len < config.get('min_samples_geometry', 30):
             continue
 
         # Truncate to same length
@@ -447,6 +512,7 @@ def compute_geometry_layer(
 
 def compute_dynamics_layer(
     observations: pl.DataFrame,
+    config: Dict[str, Any],
     vector_df: Optional[pl.DataFrame] = None,
     force: bool = False,
 ) -> pl.DataFrame:
@@ -487,7 +553,7 @@ def compute_dynamics_layer(
         values = values[mask]
         timestamps = timestamps[mask]
 
-        if len(values) < 20:
+        if len(values) < config.get('min_samples_dynamics', 100):
             continue
 
         metrics = {
@@ -575,6 +641,7 @@ def compute_dynamics_layer(
 
 def compute_physics_layer(
     observations: pl.DataFrame,
+    config: Dict[str, Any],
     force: bool = False,
 ) -> pl.DataFrame:
     """
@@ -736,6 +803,13 @@ def run_pipeline(
         logger.error("Run: python -m prism.entry_points.fetch")
         sys.exit(1)
 
+    data_path = obs_path.parent
+
+    # Load domain configuration
+    config = load_config(data_path)
+    logger.info(f"Domain: {config.get('domain', 'unknown')}")
+    logger.info(f"Min samples: {config.get('min_samples', 50)}")
+
     observations = read_parquet(obs_path)
     logger.info(f"Loaded {len(observations):,} observations")
 
@@ -751,16 +825,16 @@ def run_pipeline(
             continue
 
         if layer_name == DATA:
-            df = compute_data_layer(observations, force)
+            df = compute_data_layer(observations, config, force)
         elif layer_name == VECTOR:
-            df = compute_vector_layer(observations, force)
+            df = compute_vector_layer(observations, config, force)
         elif layer_name == GEOMETRY:
-            df = compute_geometry_layer(observations, force)
+            df = compute_geometry_layer(observations, config, force)
         elif layer_name == DYNAMICS:
             vector_df = results.get(VECTOR)
-            df = compute_dynamics_layer(observations, vector_df, force)
+            df = compute_dynamics_layer(observations, config, vector_df, force)
         elif layer_name == PHYSICS:
-            df = compute_physics_layer(observations, force)
+            df = compute_physics_layer(observations, config, force)
         else:
             logger.error(f"Unknown layer: {layer_name}")
             continue
