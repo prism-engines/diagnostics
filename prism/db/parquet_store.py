@@ -14,14 +14,16 @@ Directory Structure:
         fields.parquet       # Navier-Stokes field analysis (3D velocity fields)
         cohorts.parquet      # User-defined entity groupings
 
-PRISM Five-File Architecture:
+PRISM Seven-File Architecture:
     Pure numerical output - no labels, no classification.
 
     1. data.parquet     - observations + numeric characterization
     2. vector.parquet   - signal-level metrics (memory, frequency, volatility)
     3. geometry.parquet - pairwise relationships (correlation, distance)
     4. dynamics.parquet - state/transition metrics (granger, dtw)
-    5. fields.parquet   - Navier-Stokes field analysis (vorticity, TKE, dissipation)
+    5. physics.parquet  - energy/momentum metrics (T, V, H, L, p, G with units)
+    6. systems.parquet  - transfer functions (poles, zeros, bandwidth, stability)
+    7. fields.parquet   - Navier-Stokes field analysis (vorticity, TKE, dissipation)
 
 Usage:
     from prism.db.parquet_store import get_path, OBSERVATIONS, DATA, VECTOR
@@ -43,20 +45,19 @@ from typing import List, Optional
 OBSERVATIONS = "observations"   # Raw sensor data
 
 # =============================================================================
-# PRISM PURE CALCULATION OUTPUT (5 files)
+# PRISM PURE CALCULATION OUTPUT (7 files)
 # =============================================================================
 
 DATA = "data"           # Observations + numeric characterization
 VECTOR = "vector"       # Signal-level metrics (memory, frequency, volatility)
 GEOMETRY = "geometry"   # Pairwise relationships (correlation, distance)
 DYNAMICS = "dynamics"   # State/transition metrics (granger, dtw)
+PHYSICS = "physics"     # Energy/momentum metrics (T, V, H, L, p, G with units)
+SYSTEMS = "systems"     # Transfer functions (poles, zeros, bandwidth, stability)
 FIELDS = "fields"       # Navier-Stokes field analysis (vorticity, TKE, dissipation)
 
-# Legacy alias - will be removed
-PHYSICS = FIELDS        # Backwards compatibility only
-
-# PRISM deliverables - the five parquet files users receive
-PRISM_FILES = [DATA, VECTOR, GEOMETRY, DYNAMICS, FIELDS]
+# PRISM deliverables - the seven parquet files users receive
+PRISM_FILES = [DATA, VECTOR, GEOMETRY, DYNAMICS, PHYSICS, SYSTEMS, FIELDS]
 
 # =============================================================================
 # LEGACY ALIASES (for backwards compatibility)
