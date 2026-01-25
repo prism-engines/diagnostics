@@ -3,48 +3,41 @@
 PRISM Fields Entry Point
 ========================
 
-Real Navier-Stokes field analysis. Not inspired by. The real equations.
+Field analysis for both 3D spatial data and time-series.
 
-    dv/dt + (v . nabla)v = -nabla(p)/rho + nu * nabla^2(v) + f
+Orchestrates field engines - NO INLINE COMPUTATION.
+All compute lives in prism/engines/fields/ and prism/engines/laplace/.
 
-REQUIRES: 3D velocity field data (u, v, w components)
+Two modes:
+    1. Navier-Stokes (3D velocity fields): Real fluid dynamics
+    2. Laplace Fields (time-series): Gradient, divergence, laplacian of signals
 
-This layer operates on FIELD DATA, not time series.
-- Time series: shape (nt,) - one value per time step
-- Field data: shape (nx, ny, nz) or (nx, ny, nz, nt) - spatial grid
+Engines:
+    Navier-Stokes (requires 3D velocity data):
+        - vorticity, strain_rate, Q_criterion, lambda2
+        - turbulent_kinetic_energy, dissipation, enstrophy, helicity
+        - reynolds_number, kolmogorov_scales, energy_spectrum
+
+    Laplace Fields (works on observations.parquet):
+        - laplace_transform: s-domain representation
+        - gradient: Rate of change field
+        - laplacian: Second derivative field
+        - divergence: Source/sink detection
+        - energy: Field energy density
+        - decompose_by_scale: Multi-scale decomposition
 
 Output:
-    data/fields.parquet - Flow analysis metrics:
-        - reynolds_number: Re = UL/nu
-        - taylor_reynolds_number: Re_lambda
-        - flow_regime: laminar/transitional/turbulent
-        - mean_tke: Turbulent kinetic energy [m^2/s^2]
-        - mean_dissipation: Energy dissipation rate [m^2/s^3]
-        - mean_enstrophy: Vorticity intensity [1/s^2]
-        - mean_helicity: Helical motion measure [m/s^2]
-        - kolmogorov_length: Smallest turbulent scale [m]
-        - taylor_microscale: Intermediate scale [m]
-        - integral_length_scale: Largest eddy scale [m]
-        - energy_spectrum_slope: Should be ~ -5/3 for turbulence
-        - is_kolmogorov_turbulence: True if slope ~ -5/3
+    data/fields.parquet
 
 Usage:
-    # With velocity field data
-    python -m prism.entry_points.fields --data /path/to/velocity_data/
+    # Laplace fields from observations (default)
+    python -m prism.entry_points.fields
 
-    # With synthetic test data
+    # Navier-Stokes with 3D velocity data
+    python -m prism.entry_points.fields --data /path/to/velocity/
+
+    # Synthetic turbulence test
     python -m prism.entry_points.fields --synthetic --nx 64
-
-    # Required config in data/config.yaml:
-    fields:
-        dx: 0.001  # Grid spacing x [m]
-        dy: 0.001  # Grid spacing y [m]
-        dz: 0.001  # Grid spacing z [m]
-        nu: 1.0e-6 # Kinematic viscosity [m^2/s]
-
-References:
-    Pope (2000) "Turbulent Flows"
-    Kolmogorov (1941) "Local structure of turbulence"
 """
 
 import argparse
@@ -52,14 +45,15 @@ import logging
 import sys
 import time
 import yaml
+import json
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 import numpy as np
 import polars as pl
 
-from prism.db.parquet_store import get_path, ensure_directory, FIELDS
-from prism.db.polars_io import write_parquet_atomic
+from prism.db.parquet_store import get_path, ensure_directory, FIELDS, OBSERVATIONS
+from prism.db.polars_io import read_parquet, write_parquet_atomic
 
 logging.basicConfig(
     level=logging.INFO,
@@ -70,6 +64,63 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# ENGINE IMPORTS - All compute lives in engines
+# =============================================================================
+
+# Navier-Stokes (3D velocity fields)
+from prism.engines.fields.navier_stokes import (
+    VelocityField,
+    analyze_velocity_field,
+    compute_vorticity,
+    compute_turbulent_kinetic_energy,
+    compute_dissipation_rate,
+    compute_enstrophy,
+    compute_helicity,
+    compute_Q_criterion,
+    compute_reynolds_number,
+    compute_kolmogorov_scales,
+    compute_energy_spectrum,
+    classify_flow_regime,
+)
+
+# Laplace Fields (time-series)
+from prism.engines.laplace import (
+    compute_laplace_for_series,
+    compute_gradient,
+    compute_laplacian,
+    compute_divergence_for_signal,
+    laplace_gradient,
+    laplace_divergence,
+    laplace_energy,
+    decompose_by_scale,
+)
+
+# Engine registries
+NAVIER_STOKES_ENGINES = {
+    'vorticity': compute_vorticity,
+    'tke': compute_turbulent_kinetic_energy,
+    'dissipation': compute_dissipation_rate,
+    'enstrophy': compute_enstrophy,
+    'helicity': compute_helicity,
+    'q_criterion': compute_Q_criterion,
+    'reynolds': compute_reynolds_number,
+    'kolmogorov': compute_kolmogorov_scales,
+    'spectrum': compute_energy_spectrum,
+}
+
+LAPLACE_FIELD_ENGINES = {
+    'laplace_transform': compute_laplace_for_series,
+    'gradient': compute_gradient,
+    'laplacian': compute_laplacian,
+    'divergence': compute_divergence_for_signal,
+    'laplace_gradient': laplace_gradient,
+    'laplace_divergence': laplace_divergence,
+    'laplace_energy': laplace_energy,
+    'decompose_scale': decompose_by_scale,
+}
+
+
+# =============================================================================
 # CONFIG
 # =============================================================================
 
@@ -77,83 +128,27 @@ from prism.config.validator import ConfigurationError
 
 
 def load_config(data_path: Path) -> Dict[str, Any]:
-    """
-    Load fields config from data directory.
-
-    REQUIRES explicit grid spacing and viscosity. NO DEFAULTS.
-
-    Raises:
-        ConfigurationError: If config not found or incomplete
-    """
+    """Load config from data directory."""
     config_path = data_path / 'config.yaml'
 
-    if not config_path.exists():
-        raise ConfigurationError(
-            f"\n{'='*60}\n"
-            f"CONFIGURATION ERROR: config.yaml not found\n"
-            f"{'='*60}\n"
-            f"Location: {config_path}\n\n"
-            f"Fields analysis requires explicit configuration:\n\n"
-            f"  fields:\n"
-            f"    dx: 0.001  # Grid spacing [m]\n"
-            f"    dy: 0.001\n"
-            f"    dz: 0.001\n"
-            f"    nu: 1.0e-6  # Kinematic viscosity [m^2/s]\n"
-            f"\n"
-            f"NO DEFAULTS. NO FALLBACKS. Know your physics.\n"
-            f"{'='*60}"
-        )
+    if config_path.exists():
+        with open(config_path) as f:
+            return yaml.safe_load(f) or {}
 
-    with open(config_path) as f:
-        user_config = yaml.safe_load(f) or {}
+    json_path = data_path / 'config.json'
+    if json_path.exists():
+        with open(json_path) as f:
+            return json.load(f)
 
-    fields_config = user_config.get('fields', {})
-
-    required = ['dx', 'dy', 'dz', 'nu']
-    missing = [k for k in required if k not in fields_config]
-
-    if missing:
-        raise ConfigurationError(
-            f"\n{'='*60}\n"
-            f"CONFIGURATION ERROR: Missing fields config\n"
-            f"{'='*60}\n"
-            f"File: {config_path}\n"
-            f"Missing: {missing}\n\n"
-            f"Add to config.yaml:\n\n"
-            f"  fields:\n"
-            f"    dx: 0.001  # Grid spacing x [m]\n"
-            f"    dy: 0.001  # Grid spacing y [m]\n"
-            f"    dz: 0.001  # Grid spacing z [m]\n"
-            f"    nu: 1.0e-6  # Kinematic viscosity [m^2/s]\n"
-            f"\n"
-            f"Common values:\n"
-            f"  Water at 20C: nu = 1.0e-6 m^2/s\n"
-            f"  Air at 20C:   nu = 1.5e-5 m^2/s\n"
-            f"  JHTDB:        nu = 0.000185 m^2/s\n"
-            f"\n"
-            f"NO DEFAULTS. NO FALLBACKS. Know your physics.\n"
-            f"{'='*60}"
-        )
-
-    return fields_config
+    return {}
 
 
 # =============================================================================
-# DATA LOADING
+# NAVIER-STOKES MODE (3D Velocity Fields)
 # =============================================================================
 
 def load_velocity_data(data_dir: Path) -> Dict[str, np.ndarray]:
-    """
-    Load velocity field data from directory.
-
-    Expected files:
-        u.npy or u.npz - x-component of velocity
-        v.npy or v.npz - y-component of velocity
-        w.npy or w.npz - z-component of velocity
-
-    Returns:
-        Dict with 'u', 'v', 'w' arrays
-    """
+    """Load velocity field data from directory."""
     velocity = {}
 
     for component in ['u', 'v', 'w']:
@@ -165,7 +160,6 @@ def load_velocity_data(data_dir: Path) -> Dict[str, np.ndarray]:
             logger.info(f"Loaded {npy_path.name}: shape {velocity[component].shape}")
         elif npz_path.exists():
             with np.load(npz_path) as npz:
-                # Assume first array in npz
                 key = list(npz.keys())[0]
                 velocity[component] = npz[key]
             logger.info(f"Loaded {npz_path.name}: shape {velocity[component].shape}")
@@ -178,17 +172,179 @@ def load_velocity_data(data_dir: Path) -> Dict[str, np.ndarray]:
     return velocity
 
 
-def create_synthetic_data(nx: int, ny: int, nz: int, seed: int = 42) -> Dict[str, np.ndarray]:
-    """
-    Create synthetic turbulent velocity field for testing.
-
-    Uses random Fourier modes with k^(-5/3) energy spectrum.
-    This is for testing only - not real turbulence data.
-    """
-    from prism.utils.fields_orchestrator import create_synthetic_turbulence
-
+def create_synthetic_turbulence(nx: int, ny: int, nz: int, seed: int = 42) -> Dict[str, np.ndarray]:
+    """Create synthetic turbulent velocity field for testing."""
+    from prism.utils.fields_orchestrator import create_synthetic_turbulence as create_synth
     logger.info(f"Creating synthetic turbulence: {nx}x{ny}x{nz}")
-    return create_synthetic_turbulence(nx, ny, nz, Re_target=1000.0, seed=seed)
+    return create_synth(nx, ny, nz, Re_target=1000.0, seed=seed)
+
+
+def run_navier_stokes(
+    velocity_data: Dict[str, np.ndarray],
+    config: Dict[str, Any],
+    entity_id: str,
+) -> Dict[str, Any]:
+    """
+    Run Navier-Stokes analysis on 3D velocity field.
+
+    Pure orchestration - calls analyze_velocity_field engine.
+    """
+    fields_config = config.get('fields', {})
+
+    # Required config
+    dx = fields_config.get('dx')
+    dy = fields_config.get('dy')
+    dz = fields_config.get('dz')
+    nu = fields_config.get('nu')
+
+    if None in [dx, dy, dz, nu]:
+        raise ConfigurationError(
+            "Navier-Stokes requires explicit config:\n"
+            "  fields:\n"
+            "    dx: 0.001  # Grid spacing [m]\n"
+            "    dy: 0.001\n"
+            "    dz: 0.001\n"
+            "    nu: 1.0e-6  # Kinematic viscosity [m^2/s]"
+        )
+
+    # Create velocity field object
+    field = VelocityField(
+        u=velocity_data['u'],
+        v=velocity_data['v'],
+        w=velocity_data['w'],
+        dx=dx, dy=dy, dz=dz,
+        nu=nu,
+    )
+
+    # Run full analysis (calls all Navier-Stokes engines)
+    result = analyze_velocity_field(field)
+
+    # Add entity_id
+    result['entity_id'] = entity_id
+
+    return result
+
+
+# =============================================================================
+# LAPLACE FIELDS MODE (Time-Series)
+# =============================================================================
+
+def run_laplace_fields(
+    obs_df: pl.DataFrame,
+    config: Dict[str, Any],
+) -> pl.DataFrame:
+    """
+    Compute Laplace field metrics for all signals.
+
+    Pure orchestration - routes to Laplace field engines.
+    """
+    results = []
+
+    # Get unique entity/signal combinations
+    entities = obs_df['entity_id'].unique().to_list()
+
+    logger.info(f"Computing Laplace fields for {len(entities)} entities")
+    logger.info(f"Engines: {list(LAPLACE_FIELD_ENGINES.keys())}")
+
+    # Get field config
+    fields_config = config.get('fields', {})
+    enabled_engines = fields_config.get('enabled', list(LAPLACE_FIELD_ENGINES.keys()))
+
+    for entity_id in entities:
+        entity_obs = obs_df.filter(pl.col('entity_id') == entity_id)
+        signals = entity_obs['signal_id'].unique().to_list()
+
+        row = {'entity_id': entity_id}
+
+        for signal_id in signals[:10]:  # Limit signals per entity
+            # Extract signal values
+            index_col = 'index' if 'index' in entity_obs.columns else 'timestamp'
+            sig_data = entity_obs.filter(pl.col('signal_id') == signal_id).sort(index_col)
+            values = sig_data['value'].to_numpy()
+
+            if len(values) < 10:
+                continue
+
+            # Clean data
+            values = np.nan_to_num(values, nan=0.0, posinf=0.0, neginf=0.0)
+
+            # Run Laplace field engines
+            prefix = f"{signal_id}"
+
+            if 'laplace_transform' in enabled_engines:
+                try:
+                    result = compute_laplace_for_series(values)
+                    _flatten_result(row, f"{prefix}_laplace", result)
+                except Exception as e:
+                    logger.debug(f"laplace_transform ({signal_id}): {e}")
+
+            if 'gradient' in enabled_engines:
+                try:
+                    result = compute_gradient(values)
+                    if isinstance(result, np.ndarray):
+                        row[f"{prefix}_gradient_mean"] = float(np.nanmean(result))
+                        row[f"{prefix}_gradient_std"] = float(np.nanstd(result))
+                        row[f"{prefix}_gradient_max"] = float(np.nanmax(np.abs(result)))
+                except Exception as e:
+                    logger.debug(f"gradient ({signal_id}): {e}")
+
+            if 'laplacian' in enabled_engines:
+                try:
+                    result = compute_laplacian(values)
+                    if isinstance(result, np.ndarray):
+                        row[f"{prefix}_laplacian_mean"] = float(np.nanmean(result))
+                        row[f"{prefix}_laplacian_std"] = float(np.nanstd(result))
+                        row[f"{prefix}_laplacian_energy"] = float(np.sum(result**2))
+                except Exception as e:
+                    logger.debug(f"laplacian ({signal_id}): {e}")
+
+            if 'divergence' in enabled_engines:
+                try:
+                    result = compute_divergence_for_signal(values)
+                    _flatten_result(row, f"{prefix}_divergence", result)
+                except Exception as e:
+                    logger.debug(f"divergence ({signal_id}): {e}")
+
+            if 'laplace_energy' in enabled_engines:
+                try:
+                    result = laplace_energy(values)
+                    _flatten_result(row, f"{prefix}_field_energy", result)
+                except Exception as e:
+                    logger.debug(f"laplace_energy ({signal_id}): {e}")
+
+            if 'decompose_scale' in enabled_engines:
+                try:
+                    result = decompose_by_scale(values)
+                    if isinstance(result, dict):
+                        for scale, comp in result.items():
+                            if isinstance(comp, np.ndarray):
+                                row[f"{prefix}_scale_{scale}_energy"] = float(np.sum(comp**2))
+                except Exception as e:
+                    logger.debug(f"decompose_scale ({signal_id}): {e}")
+
+        if len(row) > 1:  # More than just entity_id
+            results.append(row)
+
+    if not results:
+        logger.warning("No Laplace field metrics computed")
+        return pl.DataFrame({'entity_id': []})
+
+    df = pl.DataFrame(results)
+    logger.info(f"Laplace fields: {len(df)} rows, {len(df.columns)} columns")
+
+    return df
+
+
+def _flatten_result(row: Dict, prefix: str, result: Any):
+    """Flatten engine result into row dict."""
+    if isinstance(result, dict):
+        for k, v in result.items():
+            if isinstance(v, (int, float, np.integer, np.floating)):
+                if v is not None and np.isfinite(v):
+                    row[f"{prefix}_{k}"] = float(v)
+    elif isinstance(result, (int, float, np.integer, np.floating)):
+        if result is not None and np.isfinite(result):
+            row[prefix] = float(result)
 
 
 # =============================================================================
@@ -197,10 +353,10 @@ def create_synthetic_data(nx: int, ny: int, nz: int, seed: int = 42) -> Dict[str
 
 def main():
     parser = argparse.ArgumentParser(
-        description="PRISM Fields - Real Navier-Stokes Analysis"
+        description="PRISM Fields - Navier-Stokes & Laplace Field Analysis"
     )
     parser.add_argument('--data', '-d', type=Path,
-                        help='Directory containing velocity field data (u.npy, v.npy, w.npy)')
+                        help='Directory containing 3D velocity data (u.npy, v.npy, w.npy)')
     parser.add_argument('--synthetic', '-s', action='store_true',
                         help='Use synthetic turbulence data for testing')
     parser.add_argument('--nx', type=int, default=64,
@@ -212,83 +368,75 @@ def main():
 
     logger.info("=" * 60)
     logger.info("PRISM Fields Engine")
-    logger.info("Real Navier-Stokes. Not inspired by. The real equations.")
+    logger.info("Navier-Stokes (3D) + Laplace Fields (time-series)")
     logger.info("=" * 60)
 
     ensure_directory()
     data_path = get_path(FIELDS).parent
-
     output_path = get_path(FIELDS)
 
     if output_path.exists() and not args.force:
         logger.info("fields.parquet exists, use --force to recompute")
         return 0
 
-    # Load or create velocity data
+    config = load_config(data_path)
+
+    # Determine mode
     if args.synthetic:
-        velocity_data = create_synthetic_data(args.nx, args.nx, args.nx)
-        # Use default config for synthetic
-        config = {
+        # Synthetic Navier-Stokes
+        logger.info("Mode: Synthetic Navier-Stokes")
+        velocity_data = create_synthetic_turbulence(args.nx, args.nx, args.nx)
+        config['fields'] = {
             'dx': 2 * np.pi / args.nx,
             'dy': 2 * np.pi / args.nx,
             'dz': 2 * np.pi / args.nx,
-            'nu': 1e-4,  # Moderate viscosity for synthetic
+            'nu': 1e-4,
         }
-        entity_id = f"synthetic_{args.nx}"
+
+        start = time.time()
+        result = run_navier_stokes(velocity_data, config, f"synthetic_{args.nx}")
+        df = pl.DataFrame([result])
+        elapsed = time.time() - start
+
     elif args.data:
+        # Real Navier-Stokes data
+        logger.info(f"Mode: Navier-Stokes from {args.data}")
         if not args.data.exists():
             logger.error(f"Data directory not found: {args.data}")
             return 1
+
         velocity_data = load_velocity_data(args.data)
-        config = load_config(data_path)
-        entity_id = args.data.name
+
+        start = time.time()
+        result = run_navier_stokes(velocity_data, config, args.data.name)
+        df = pl.DataFrame([result])
+        elapsed = time.time() - start
+
     else:
-        logger.error("Must specify --data or --synthetic")
-        parser.print_help()
-        return 1
+        # Laplace Fields from observations
+        logger.info("Mode: Laplace Fields (from observations.parquet)")
+        obs_path = get_path(OBSERVATIONS)
 
-    # Run analysis
-    from prism.utils.fields_orchestrator import FieldsOrchestrator
+        if not obs_path.exists():
+            logger.error("observations.parquet not found")
+            logger.error("Run: python -m prism.entry_points.fetch")
+            logger.info("Or use --synthetic for test data, --data for 3D velocity")
+            return 1
 
-    logger.info(f"Grid config: dx={config['dx']}, dy={config['dy']}, dz={config['dz']}")
-    logger.info(f"Viscosity: nu={config['nu']} m^2/s")
+        obs_df = read_parquet(obs_path)
+        logger.info(f"Loaded observations: {len(obs_df)} rows")
 
-    orchestrator = FieldsOrchestrator(config)
+        start = time.time()
+        df = run_laplace_fields(obs_df, config)
+        elapsed = time.time() - start
 
-    start = time.time()
-    df = orchestrator.run(velocity_data, entity_id=entity_id)
-    elapsed = time.time() - start
-
-    # Log key results
+    # Save results
     if len(df) > 0:
-        row = df.row(0, named=True)
-        logger.info("")
-        logger.info("=" * 60)
-        logger.info("RESULTS")
-        logger.info("=" * 60)
-        logger.info(f"Flow regime:           {row['flow_regime']}")
-        logger.info(f"Reynolds number:       {row['reynolds_number']:.2f}")
-        logger.info(f"Taylor Re:             {row['taylor_reynolds_number']:.2f}")
-        logger.info(f"Turbulence intensity:  {row['turbulence_intensity']:.4f}")
-        logger.info("")
-        logger.info(f"Mean TKE:              {row['mean_tke']:.6f} m^2/s^2")
-        logger.info(f"Mean dissipation:      {row['mean_dissipation']:.6e} m^2/s^3")
-        logger.info(f"Mean enstrophy:        {row['mean_enstrophy']:.6f} 1/s^2")
-        logger.info(f"Mean vorticity:        {row['mean_vorticity']:.6f} 1/s")
-        logger.info("")
-        logger.info(f"Kolmogorov length:     {row['kolmogorov_length']:.6e} m")
-        logger.info(f"Taylor microscale:     {row['taylor_microscale']:.6e} m")
-        logger.info(f"Integral scale:        {row['integral_length_scale']:.6e} m")
-        logger.info("")
-        if row['energy_spectrum_slope'] is not None:
-            logger.info(f"Energy spectrum slope: {row['energy_spectrum_slope']:.3f}")
-            logger.info(f"Expected (Kolmogorov): -1.667")
-            logger.info(f"Is Kolmogorov turb:    {row['is_kolmogorov_turbulence']}")
-        logger.info("=" * 60)
-
         write_parquet_atomic(df, output_path)
         logger.info(f"Wrote {output_path}")
         logger.info(f"  {len(df)} rows, {len(df.columns)} columns in {elapsed:.1f}s")
+    else:
+        logger.warning("No fields computed")
 
     return 0
 
