@@ -1,0 +1,67 @@
+domain: electrochemical_reactor
+description: Electrochemical reactor with full physics constants
+global_constants:
+  mass: 25.0
+  spring_constant: 1000.0
+  density: 1200.0
+  dynamic_viscosity: 0.001
+  kinematic_viscosity: 8.33e-07
+  pipe_diameter: 0.05
+  pipe_length: 2.0
+  characteristic_length: 0.05
+  thermal_conductivity: 0.6
+  heat_capacity: 3500.0
+  thermal_diffusivity: 1.43e-07
+  diffusivity: 1.0e-09
+  mass_diffusivity: 1.0e-09
+  n_electrons: 2
+  molar_mass: 0.0069
+  standard_potential: 3.7
+  gamma: 1.4
+  R_specific: 287.0
+  area: 0.01
+  thickness: 0.0001
+  volume: 0.001
+signals:
+  temperature:
+    unit: K
+    description: Reactor temperature
+  pressure:
+    unit: Pa
+    description: System pressure
+  voltage:
+    unit: V
+    description: Cell voltage
+  current:
+    unit: A
+    description: Discharge current
+  velocity:
+    unit: m/s
+    description: Electrolyte flow velocity
+  concentration:
+    unit: mol/m3
+    description: Ion concentration
+  position:
+    unit: m
+    description: Vibration displacement
+  force:
+    unit: N
+    description: Mechanical load
+  heat_flux:
+    unit: W/m2
+    description: Heat transfer rate
+  enthalpy:
+    unit: J/mol
+    description: Molar enthalpy
+  entropy:
+    unit: J/(mol*K)
+    description: Molar entropy
+  molar_flux:
+    unit: mol/(m2*s)
+    description: Species flux
+  overpotential:
+    unit: V
+    description: Electrode overpotential
+  exchange_current_density:
+    unit: A/m2
+    description: Exchange current
