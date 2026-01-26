@@ -15,16 +15,17 @@ description: Electrochemical reactor with full physics constants
 # This is what gets mapped to 'I' in the SQL pipeline.
 
 index:
-  column: timestamp           # Column name in observations.parquet
+  column: I                   # CANONICAL: Always 'I' in observations.parquet
   dimension: time             # time | cycles | samples | depth | distance
   unit: s                     # Unit of the index (s, cycles, samples, m, etc.)
   sampling_rate: null         # Hz if applicable (for FFT, wavelets)
 
-# Alternative examples:
-# NASA CMAPSS: column=cycle, dimension=cycles, unit=cycles
-# CWRU Bearing: column=sample, dimension=samples, sampling_rate=12000
-# Grid Frequency: column=timestamp, dimension=time, unit=s, sampling_rate=1
-# Well Logging: column=depth, dimension=depth, unit=m
+# NOTE: Column is always 'I' - alias mapping happens at INTAKE
+# The dimension and unit describe what I represents for this domain:
+# - Electrochemistry: dimension=time, unit=s
+# - NASA CMAPSS: dimension=cycles, unit=cycles
+# - CWRU Bearing: dimension=samples, unit=samples, sampling_rate=12000
+# - Well Logging: dimension=depth, unit=m
 
 # =============================================================================
 # GLOBAL CONSTANTS

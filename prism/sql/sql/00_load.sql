@@ -6,15 +6,23 @@
 -- ============================================================================
 
 -- ============================================================================
--- 001: CREATE BASE VIEW FROM OBSERVATIONS
+-- CANONICAL SCHEMA - THE RULE
 -- ============================================================================
--- observations.parquet schema:
+-- observations.parquet MUST have columns:
+--
 --   entity_id  : str   - Entity identifier
 --   signal_id  : str   - Signal name
---   index      : float - X-axis (time, cycle, depth, etc.)
---   value      : float - Y-axis measurement
+--   I          : float - Index (time, cycle, depth, distance, sample)
+--   y          : float - Value (the measurement)
+--   unit       : str   - Unit of measurement (optional)
 --
--- Note: Some files use 'timestamp' for index column - this is handled below.
+-- I means I. y means y. No aliases. No mapping.
+-- Column mapping happens at INTAKE, not here.
+-- ============================================================================
+
+-- ============================================================================
+-- 001: CREATE BASE VIEW FROM OBSERVATIONS
+-- ============================================================================
 
 CREATE OR REPLACE VIEW v_base AS
 SELECT
@@ -22,8 +30,8 @@ SELECT
     signal_id,
     I,
     y,
-    -- Metadata columns (NULL if not present in source)
-    NULL AS value_unit,
+    -- Canonical schema: unit column required (may be NULL values)
+    unit AS value_unit,
     NULL AS index_dimension,
     NULL AS signal_class
 FROM observations;

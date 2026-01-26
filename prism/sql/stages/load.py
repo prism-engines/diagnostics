@@ -4,7 +4,11 @@ Load Stage Orchestrator
 PURE: Loads 00_load.sql, creates base views.
 NO computation. NO inline SQL.
 
-Handles index column mapping from domain config or auto-detection.
+CANONICAL SCHEMA: observations.parquet MUST have columns:
+  entity_id, signal_id, I, y, unit
+
+No mapping. No aliases. I means I. y means y.
+Alias mapping happens at INTAKE, not here.
 """
 
 from pathlib import Path
@@ -14,8 +18,26 @@ import yaml
 from .base import StageOrchestrator
 
 
+# =============================================================================
+# CANONICAL SCHEMA - THE RULE
+# =============================================================================
+# observations.parquet columns: entity_id, signal_id, I, y, unit
+#
+# I = index (time, space, frequency, scale, cycle)
+# y = value (the measurement)
+#
+# No aliases. No mapping after intake. I and y. Done.
+# =============================================================================
+
+CANONICAL_COLUMNS = ['entity_id', 'signal_id', 'I', 'y', 'unit']
+
+
 class LoadStage(StageOrchestrator):
-    """Load observations and create base view."""
+    """Load observations and create base view.
+
+    EXPECTS canonical schema: entity_id, signal_id, I, y, unit
+    Does NOT map column names - that's intake's job.
+    """
 
     SQL_FILE = '00_load.sql'
 
@@ -27,24 +49,6 @@ class LoadStage(StageOrchestrator):
     ]
 
     DEPENDS_ON = []  # First stage, no dependencies
-
-    # Default column mapping: source -> canonical
-    # Extended to handle common real-world dataset conventions
-    DEFAULT_INDEX_COLUMNS = {
-        'timestamp': 'I',
-        'index': 'I',
-        'time': 'I',
-        'cycle': 'I',        # NASA CMAPSS
-        'sample': 'I',       # CWRU Bearing
-        'sample_index': 'I',
-        'depth': 'I',        # Well logging
-        't': 'I',
-    }
-
-    DEFAULT_VALUE_COLUMNS = {
-        'value': 'y',
-        'y': 'y',
-    }
 
     def __init__(self, conn, domain_config: Optional[dict] = None):
         """
@@ -67,63 +71,36 @@ class LoadStage(StageOrchestrator):
             return cls(conn, domain_config=config)
         return cls(conn)
 
-    def _build_column_map(self, col_names: list[str]) -> dict[str, str]:
-        """
-        Build column mapping based on domain config and defaults.
-
-        Priority:
-        1. Domain config index.column setting
-        2. Default index column names
-        3. Default value column names
-        """
-        column_map = {}
-
-        # Get index column from domain config
-        index_config = self.domain_config.get('index', {})
-        domain_index_col = index_config.get('column')
-
-        # Map index column
-        for col in col_names:
-            # Domain config takes priority
-            if domain_index_col and col == domain_index_col:
-                column_map[col] = 'I'
-            elif col in self.DEFAULT_INDEX_COLUMNS:
-                column_map[col] = 'I'
-            elif col in self.DEFAULT_VALUE_COLUMNS:
-                column_map[col] = 'y'
-
-        return column_map
-
     def load_observations(self, path: str) -> None:
         """
         Load observations parquet into database.
 
-        Handles column renaming to canonical schema:
-          entity_id, signal_id, I (index), y (value)
+        EXPECTS canonical schema: entity_id, signal_id, I, y, unit
+        Validates schema and loads directly - no column mapping.
 
-        Uses domain config for index column if available,
-        otherwise auto-detects from common column names.
-
-        PURE: Just column aliasing, no computation.
+        Raises:
+            ValueError: If required columns (I, y) are missing
         """
         # Get actual columns from file
         cols = self.conn.execute(f"DESCRIBE SELECT * FROM '{path}'").fetchall()
         col_names = [c[0] for c in cols]
 
-        # Build column mapping
-        column_map = self._build_column_map(col_names)
+        # Validate canonical schema
+        if 'I' not in col_names:
+            raise ValueError(
+                f"observations.parquet missing required column 'I'. "
+                f"Found columns: {col_names}. "
+                f"Column mapping should happen at intake, not here."
+            )
+        if 'y' not in col_names:
+            raise ValueError(
+                f"observations.parquet missing required column 'y'. "
+                f"Found columns: {col_names}. "
+                f"Column mapping should happen at intake, not here."
+            )
 
-        # Build SELECT with renames
-        select_parts = []
-        for col in col_names:
-            canonical = column_map.get(col, col)
-            if canonical != col:
-                select_parts.append(f'"{col}" AS {canonical}')
-            else:
-                select_parts.append(f'"{col}"')
-
-        select_clause = ', '.join(select_parts)
-        self.conn.execute(f"CREATE OR REPLACE TABLE observations AS SELECT {select_clause} FROM '{path}'")
+        # Load directly - no mapping needed
+        self.conn.execute(f"CREATE OR REPLACE TABLE observations AS SELECT * FROM '{path}'")
 
     def get_row_count(self) -> int:
         """Return number of rows loaded."""
