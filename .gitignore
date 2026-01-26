@@ -11,6 +11,10 @@
 # Parquet files anywhere
 *.parquet
 
+# SQL pipeline outputs
+prism/sql/outputs/*.parquet
+prism/sql/outputs/manifest.json
+
 # Raw data files
 *.csv
 *.tsv

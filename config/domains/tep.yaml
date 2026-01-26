@@ -1,0 +1,207 @@
+# =============================================================================
+# Tennessee Eastman Process
+# =============================================================================
+# Best for: Multivariate causality, regime changes, fault detection, chemical process physics
+# Download: https://github.com/mv-per/tennessee-eastman-dataset
+
+domain: tennessee_eastman
+description: Tennessee Eastman chemical process simulation
+
+index:
+  column: sample
+  dimension: time
+  unit: min
+  sampling_rate: 0.333  # 3-minute intervals = 1/180 Hz
+
+global_constants:
+  # Process conditions
+  reactor_volume_m3: 122
+  separator_volume_m3: 98
+  stripper_volume_m3: 40
+
+signals:
+  # Flow measurements
+  XMEAS_1:
+    unit: kscmh
+    class: analog
+    quantity: flow_volume
+    description: A feed (stream 1)
+
+  XMEAS_2:
+    unit: kg/hr
+    class: analog
+    quantity: flow_mass
+    description: D feed (stream 2)
+
+  XMEAS_3:
+    unit: kg/hr
+    class: analog
+    quantity: flow_mass
+    description: E feed (stream 3)
+
+  XMEAS_4:
+    unit: kscmh
+    class: analog
+    quantity: flow_volume
+    description: A and C feed (stream 4)
+
+  XMEAS_5:
+    unit: kscmh
+    class: analog
+    quantity: flow_volume
+    description: Recycle flow (stream 8)
+
+  XMEAS_6:
+    unit: kscmh
+    class: analog
+    quantity: flow_volume
+    description: Reactor feed rate (stream 6)
+
+  # Reactor measurements
+  XMEAS_7:
+    unit: kPa
+    class: analog
+    quantity: pressure
+    description: Reactor pressure
+
+  XMEAS_8:
+    unit: "%"
+    class: analog
+    quantity: level
+    description: Reactor level
+
+  XMEAS_9:
+    unit: "°C"
+    class: analog
+    quantity: temperature
+    description: Reactor temperature
+
+  # Separator measurements
+  XMEAS_11:
+    unit: "°C"
+    class: analog
+    quantity: temperature
+    description: Separator temperature
+
+  XMEAS_12:
+    unit: "%"
+    class: analog
+    quantity: level
+    description: Separator level
+
+  XMEAS_13:
+    unit: kPa
+    class: analog
+    quantity: pressure
+    description: Separator pressure
+
+  # Stripper measurements
+  XMEAS_15:
+    unit: "%"
+    class: analog
+    quantity: level
+    description: Stripper level
+
+  XMEAS_16:
+    unit: kPa
+    class: analog
+    quantity: pressure
+    description: Stripper pressure
+
+  XMEAS_18:
+    unit: "°C"
+    class: analog
+    quantity: temperature
+    description: Stripper temperature
+
+  # Power
+  XMEAS_20:
+    unit: kW
+    class: analog
+    quantity: power
+    description: Compressor work
+
+  # Cooling water temps
+  XMEAS_21:
+    unit: "°C"
+    class: analog
+    quantity: temperature
+    description: Reactor cooling water outlet temp
+
+  XMEAS_22:
+    unit: "°C"
+    class: analog
+    quantity: temperature
+    description: Separator cooling water outlet temp
+
+  # Manipulated variables (valve positions)
+  XMV_1:
+    unit: "%"
+    class: analog
+    quantity: position
+    description: D feed flow valve
+
+  XMV_2:
+    unit: "%"
+    class: analog
+    quantity: position
+    description: E feed flow valve
+
+  XMV_3:
+    unit: "%"
+    class: analog
+    quantity: position
+    description: A feed flow valve
+
+expected_causality:
+  # Control causality
+  - source: XMV_1
+    target: XMEAS_2
+    direction: forward
+    lag_range: [1, 5]
+    description: D feed valve controls D feed flow
+
+  # Process causality
+  - source: XMEAS_1
+    target: XMEAS_7
+    direction: forward
+    lag_range: [5, 20]
+    description: Feed affects reactor pressure
+
+  - source: XMEAS_9
+    target: XMEAS_11
+    direction: forward
+    lag_range: [10, 30]
+    description: Reactor temp → separator temp
+
+coupling_clusters:
+  reactor:
+    signals: [XMEAS_6, XMEAS_7, XMEAS_8, XMEAS_9, XMEAS_21]
+
+  separator:
+    signals: [XMEAS_11, XMEAS_12, XMEAS_13, XMEAS_14, XMEAS_22]
+
+  stripper:
+    signals: [XMEAS_15, XMEAS_16, XMEAS_17, XMEAS_18, XMEAS_19]
+
+fault_types:
+  IDV_1: "A/C feed ratio, B composition constant (stream 4)"
+  IDV_2: "B composition, A/C ratio constant (stream 4)"
+  IDV_3: "D feed temperature (stream 2)"
+  IDV_4: "Reactor cooling water inlet temperature"
+  IDV_5: "Condenser cooling water inlet temperature"
+  IDV_6: "A feed loss (stream 1)"
+  IDV_7: "C header pressure loss (stream 4)"
+
+expected_regimes:
+  training_normal:
+    sample_range: [0, 60]  # First hour normal
+
+  training_fault:
+    sample_range: [60, null]  # Fault injected at 1 hour
+
+  testing_normal:
+    sample_range: [0, 160]  # First 8 hours normal
+
+  testing_fault:
+    sample_range: [160, null]  # Fault injected at 8 hours

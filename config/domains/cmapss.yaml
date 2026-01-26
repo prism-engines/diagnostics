@@ -1,263 +1,110 @@
+# =============================================================================
 # NASA C-MAPSS Turbofan Engine Degradation
-# Commercial Modular Aero-Propulsion System Simulation
-#
-# Reference: Saxena et al., "Damage Propagation Modeling for Aircraft
-#            Engine Run-to-Failure Simulation", NASA Ames Research Center
-#
-# Datasets:
-#   FD001: Single fault mode, single operating condition (100 engines)
-#   FD002: Single fault mode, six operating conditions (260 engines)
-#   FD003: Two fault modes, single operating condition (100 engines)
-#   FD004: Two fault modes, six operating conditions (248 engines)
+# =============================================================================
+# Best for: Regime detection, trending behavior, Hurst exponent, multivariate coupling
+# Download: https://phm-datasets.s3.amazonaws.com/NASA/6.+Turbofan+Engine+Degradation+Simulation+Data+Set.zip
 
-source: cmapss
-domain: aerospace
+domain: cmapss_turbofan
+description: NASA C-MAPSS turbofan engine degradation simulation
 
-# Time configuration
-time:
+index:
   column: cycle
-  units: cycle
-  description: Engine operating cycle (discrete time step)
+  dimension: cycles
+  unit: cycles
+  sampling_rate: null  # Not time-based
 
-# Entity configuration
-entity:
-  column: unit
-  prefix: "FD{dataset}_U"
-  description: Individual turbofan engine unit
+global_constants:
+  R_air: 53.35            # ft·lbf/(lbm·°R)
+  gamma_air: 1.4          # Cp/Cv
+  g: 32.174               # ft/s²
 
-# Operating conditions (context, not physics signals)
-op_settings:
-  op1:
-    prism_id: altitude
-    units: ft
-    physical_quantity: length
-    description: Flight altitude
-  op2:
-    prism_id: mach_number
-    units: dimensionless
-    physical_quantity: ratio
-    description: Flight Mach number
-  op3:
-    prism_id: throttle_angle
-    units: deg
-    physical_quantity: angle
+signals:
+  # Operational settings (discrete)
+  op_setting_1:
+    unit: ft
+    class: digital
+    quantity: altitude
+    description: Altitude
+
+  op_setting_2:
+    unit: Mach
+    class: digital
+    quantity: dimensionless
+    description: Mach number
+
+  op_setting_3:
+    unit: deg
+    class: digital
+    quantity: angle
     description: Throttle resolver angle
 
-# Sensor signals with units
-signals:
-  # === TEMPERATURES (Rankine) ===
-  T2:
-    prism_id: temp_fan_inlet
-    units: degR
-    physical_quantity: temperature
-    description: Total temperature at fan inlet
-    location: station_2
-
-  T24:
-    prism_id: temp_lpc_outlet
-    units: degR
-    physical_quantity: temperature
+  # Temperature sensors (analog, trending)
+  sensor_2:
+    unit: "°R"
+    class: analog
+    quantity: temperature
     description: Total temperature at LPC outlet
-    location: station_24
 
-  T30:
-    prism_id: temp_hpc_outlet
-    units: degR
-    physical_quantity: temperature
+  sensor_3:
+    unit: "°R"
+    class: analog
+    quantity: temperature
     description: Total temperature at HPC outlet
-    location: station_30
 
-  T50:
-    prism_id: temp_lpt_outlet
-    units: degR
-    physical_quantity: temperature
-    description: Total temperature at LPT outlet
-    location: station_50
-
-  # === PRESSURES (psia) ===
-  P2:
-    prism_id: pressure_fan_inlet
-    units: psia
-    physical_quantity: pressure
-    description: Pressure at fan inlet
-    location: station_2
-
-  P15:
-    prism_id: pressure_bypass
-    units: psia
-    physical_quantity: pressure
-    description: Total pressure in bypass-duct
-    location: station_15
-
-  P30:
-    prism_id: pressure_hpc_outlet
-    units: psia
-    physical_quantity: pressure
+  # Pressure sensors (analog)
+  sensor_7:
+    unit: psia
+    class: analog
+    quantity: pressure
     description: Total pressure at HPC outlet
-    location: station_30
 
-  Ps30:
-    prism_id: pressure_hpc_static
-    units: psia
-    physical_quantity: pressure
+  sensor_11:
+    unit: psia
+    class: analog
+    quantity: pressure
     description: Static pressure at HPC outlet
-    location: station_30
 
-  # === ROTATIONAL SPEEDS (rpm) ===
-  Nf:
-    prism_id: speed_fan
-    units: rpm
-    physical_quantity: angular_velocity
+  # Speed sensors (analog)
+  sensor_8:
+    unit: rpm
+    class: analog
+    quantity: frequency
     description: Physical fan speed
 
-  Nc:
-    prism_id: speed_core
-    units: rpm
-    physical_quantity: angular_velocity
+  sensor_9:
+    unit: rpm
+    class: analog
+    quantity: frequency
     description: Physical core speed
 
-  NRf:
-    prism_id: speed_fan_corrected
-    units: rpm
-    physical_quantity: angular_velocity
-    description: Corrected fan speed
+expected_behaviors:
+  sensor_2:
+    trend: trending
+    stationarity: false
+    hurst_range: [0.5, 0.8]
 
-  NRc:
-    prism_id: speed_core_corrected
-    units: rpm
-    physical_quantity: angular_velocity
-    description: Corrected core speed
+  sensor_7:
+    trend: trending
+    stationarity: false
+    hurst_range: [0.5, 0.8]
 
-  Nf_dmd:
-    prism_id: speed_fan_demanded
-    units: rpm
-    physical_quantity: angular_velocity
-    description: Demanded fan speed
+expected_causality:
+  - source: sensor_7
+    target: sensor_11
+    direction: bidirectional
+    description: HPC pressures coupled
 
-  PCNfR_dmd:
-    prism_id: speed_fan_corrected_demanded
-    units: rpm
-    physical_quantity: angular_velocity
-    description: Demanded corrected fan speed
+  - source: sensor_8
+    target: sensor_9
+    direction: bidirectional
+    description: Speeds coupled
 
-  # === RATIOS (dimensionless) ===
-  epr:
-    prism_id: engine_pressure_ratio
-    units: dimensionless
-    physical_quantity: ratio
-    description: Engine pressure ratio (P50/P2)
-    derived_from: [P50, P2]
+expected_regimes:
+  - name: early_life
+    cycle_range: [0, 50]
 
-  phi:
-    prism_id: fuel_flow_ratio
-    units: dimensionless
-    physical_quantity: ratio
-    description: Ratio of fuel flow to Ps30
+  - name: mid_life
+    cycle_range: [50, 150]
 
-  BPR:
-    prism_id: bypass_ratio
-    units: dimensionless
-    physical_quantity: ratio
-    description: Bypass ratio (bypass flow / core flow)
-
-  farB:
-    prism_id: fuel_air_ratio
-    units: dimensionless
-    physical_quantity: ratio
-    description: Burner fuel-air ratio
-
-  # === MASS FLOWS (lbm/s) ===
-  W31:
-    prism_id: bleed_hpt
-    units: lbm/s
-    physical_quantity: mass_flow
-    description: HPT coolant bleed flow
-    location: station_31
-
-  W32:
-    prism_id: bleed_lpt
-    units: lbm/s
-    physical_quantity: mass_flow
-    description: LPT coolant bleed flow
-    location: station_32
-
-  # === ENTHALPY ===
-  htBleed:
-    prism_id: enthalpy_bleed
-    units: BTU/lbm
-    physical_quantity: specific_enthalpy
-    description: Bleed enthalpy
-
-# Target variable for ML
-target:
-  RUL:
-    prism_id: remaining_useful_life
-    units: cycle
-    physical_quantity: count
-    description: Remaining useful life (cycles until failure)
-
-# Physics relationships that CAN be computed
-physics:
-  # Level 1: Derivatives (always computable with units)
-  derivatives:
-    - signal: temp_fan_inlet
-      output: dT2_dt
-      units: degR/cycle
-
-    - signal: pressure_fan_inlet
-      output: dP2_dt
-      units: psia/cycle
-
-    - signal: speed_fan
-      output: dNf_dt
-      units: rpm/cycle
-      description: Fan acceleration/deceleration
-
-  # Level 3: Thermodynamic relationships
-  thermodynamics:
-    # Isentropic relations between stations
-    - name: compressor_efficiency
-      inputs: [temp_hpc_outlet, temp_fan_inlet, pressure_hpc_outlet, pressure_fan_inlet]
-      description: "eta = (T30_ideal - T2) / (T30 - T2)"
-      requires: [gamma]  # ratio of specific heats
-
-    - name: pressure_ratio_check
-      inputs: [engine_pressure_ratio, pressure_fan_inlet]
-      description: "Validate epr against measured pressures"
-
-# Constants needed for full physics (NOT in data - would need to be provided)
-missing_constants:
-  gamma:
-    value: 1.4
-    units: dimensionless
-    description: Ratio of specific heats for air
-
-  R_air:
-    value: 1716
-    units: ft*lbf/(slug*degR)
-    description: Gas constant for air
-
-  Cp_air:
-    value: 0.24
-    units: BTU/(lbm*degR)
-    description: Specific heat at constant pressure
-
-# What we CANNOT compute (missing data)
-limitations:
-  - name: kinetic_energy
-    reason: "No mass or velocity measurements"
-
-  - name: potential_energy
-    reason: "No position measurements"
-
-  - name: momentum
-    reason: "No mass measurements"
-
-  - name: navier_stokes
-    reason: "No spatial field data (point sensors only)"
-
-# Window configuration
-window:
-  size: 30
-  stride: 15
-  description: "30 cycles with 50% overlap"
+  - name: late_life
+    cycle_range: [150, null]

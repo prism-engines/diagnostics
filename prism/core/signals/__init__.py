@@ -1,15 +1,4 @@
-"""
-PRISM Signal Types — Data structures for signal representation.
-"""
+"""Minimal signals stub for backwards compatibility."""
+from .types import DenseSignal, SparseSignal, LaplaceField
 
-from prism.core.signals.types import (
-    DenseSignal,
-    SparseSignal,
-    LaplaceField,
-)
-
-__all__ = [
-    'DenseSignal',
-    'SparseSignal',
-    'LaplaceField',
-]
+__all__ = ['DenseSignal', 'SparseSignal', 'LaplaceField']

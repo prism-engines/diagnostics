@@ -1,0 +1,89 @@
+# =============================================================================
+# Case Western Reserve University Bearing Data
+# =============================================================================
+# Best for: FFT, periodicity detection, fault frequency identification
+# Download: https://engineering.case.edu/bearingdatacenter/download-data-file
+
+domain: cwru_bearing
+description: CWRU bearing fault vibration data
+
+index:
+  column: sample_index
+  dimension: samples
+  unit: samples
+  sampling_rate: 12000  # Hz - critical for FFT
+
+global_constants:
+  # Bearing geometry: 6205-2RS JEM SKF
+  ball_diameter_in: 0.3125
+  pitch_diameter_in: 1.537
+  n_balls: 9
+  contact_angle_deg: 0
+
+  # Derived fault frequencies at nominal RPM
+  # BPFO = 0.4053 × RPM / 60
+  # BPFI = 0.5947 × RPM / 60
+  # BSF = 0.3983 × RPM / 60
+  # FTF = 0.3983 × RPM / 60
+
+signals:
+  DE_time:
+    unit: g
+    class: periodic
+    quantity: acceleration
+    description: Drive End accelerometer
+
+  FE_time:
+    unit: g
+    class: periodic
+    quantity: acceleration
+    description: Fan End accelerometer
+
+  BA_time:
+    unit: g
+    class: periodic
+    quantity: acceleration
+    description: Base accelerometer
+
+  RPM:
+    unit: rpm
+    class: analog
+    quantity: frequency
+    description: Shaft speed
+
+expected_behaviors:
+  DE_time:
+    trend: periodic
+    stationarity: true
+    description: Vibration signal, should show fault frequencies in FFT
+
+  FE_time:
+    trend: periodic
+    stationarity: true
+
+expected_fft_peaks:
+  healthy:
+    - frequency: shaft_1x
+      description: Shaft frequency (1×)
+    - frequency: shaft_2x
+      description: 2× harmonic
+    - frequency: shaft_3x
+      description: 3× harmonic
+
+  outer_race_fault:
+    - frequency: BPFO
+      value_at_1797rpm: 107  # Hz
+    - frequency: BPFO_harmonics
+
+  inner_race_fault:
+    - frequency: BPFI
+      value_at_1797rpm: 162  # Hz
+
+  ball_fault:
+    - frequency: BSF
+      value_at_1797rpm: 141  # Hz
+
+expected_entropy:
+  healthy: low
+  faulty: high
+  description: Faulty bearings have more complex spectrum

@@ -1,61 +1,81 @@
 """
-PRISM Core Engines
-==================
+PRISM Core Engines - Irreducible Algorithms
+============================================
 
-Universal, domain-agnostic mathematical engines.
-These compute properties valid for ANY time series.
+These engines cannot be expressed in SQL. They require:
+- Iterative algorithms (hurst, lyapunov, garch)
+- Matrix decomposition (pca, dmd)
+- Optimization (cointegration, granger)
+- Complex number arithmetic (fft, hilbert)
+- Pattern matching (entropy, rqa)
+- Graph algorithms (mst, clustering)
+- Density estimation (lof)
+- Geometric algorithms (convex_hull)
 
-Categories:
-    - memory: Long-range dependence (Hurst, ACF, DFA)
-    - information: Complexity measures (entropy)
-    - frequency: Spectral analysis (FFT, wavelet)
-    - dynamics: Nonlinear dynamics (Lyapunov, attractors)
-    - state: Pairwise relationships (Granger, DTW, cointegration)
-    - geometry: Structural analysis (PCA, MST, clustering)
-    - laplace: Laplace transforms and operators
-    - volatility: Variance modeling (GARCH, realized vol)
-    - recurrence: Recurrence quantification
-    - typology: Signal classification (trend, seasonality)
-    - pointwise: Point-by-point transforms
-    - momentum: Randomness tests
-    - detection: Spike and step detection
-    - discontinuity: Structural breaks
-    - events: Heaviside and Dirac functions
-    - windowed: Windowed versions of above
-    - physics: Classical mechanics (Hamiltonian, Lagrangian)
-    - electrochemistry: Universal electrochemical laws
-    - phase_equilibria: Thermodynamic equilibrium
-    - balances: Energy and mass balances
-    - fields: Navier-Stokes
-    - utils: Parallel processing utilities
+Total: 29 core engines
 """
 
-# Subdirectories are imported lazily when needed
-# This avoids circular imports and speeds up startup
+# Memory / Long-range dependence
+from . import hurst
+from . import acf_decay
+from . import spectral_slope
 
-CORE_ENGINE_CATEGORIES = [
-    'memory',
-    'information',
-    'frequency',
-    'dynamics',
-    'state',
-    'geometry',
-    'laplace',
-    'volatility',
-    'recurrence',
-    'typology',
-    'pointwise',
-    'momentum',
-    'detection',
-    'discontinuity',
-    'events',
-    'windowed',
-    'physics',
-    'electrochemistry',
-    'phase_equilibria',
-    'balances',
-    'fields',
-    'utils',
+# Dynamics / Nonlinear
+from . import lyapunov
+from . import embedding
+from . import attractor
+from . import basin
+
+# Frequency / Spectral
+from . import fft
+from . import wavelet
+from . import hilbert
+
+# Information / Complexity
+from . import entropy
+from . import entropy_rate
+
+# Volatility
+from . import garch
+
+# Recurrence
+from . import rqa
+
+# State / Pairwise
+from . import granger
+from . import transfer_entropy
+from . import cointegration
+from . import dtw
+from . import dmd
+
+# Geometry / Structure
+from . import pca
+from . import umap
+from . import clustering
+from . import mst
+from . import mutual_info
+from . import copula
+from . import divergence
+from . import convex_hull
+from . import lof
+from . import modes
+
+__all__ = [
+    # Memory
+    'hurst', 'acf_decay', 'spectral_slope',
+    # Dynamics
+    'lyapunov', 'embedding', 'attractor', 'basin',
+    # Frequency
+    'fft', 'wavelet', 'hilbert',
+    # Information
+    'entropy', 'entropy_rate',
+    # Volatility
+    'garch',
+    # Recurrence
+    'rqa',
+    # State
+    'granger', 'transfer_entropy', 'cointegration', 'dtw', 'dmd',
+    # Geometry
+    'pca', 'umap', 'clustering', 'mst', 'mutual_info',
+    'copula', 'divergence', 'convex_hull', 'lof', 'modes',
 ]
-
-__all__ = ['CORE_ENGINE_CATEGORIES']

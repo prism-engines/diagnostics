@@ -1,0 +1,228 @@
+# =============================================================================
+# PRISM Domain Configuration
+# =============================================================================
+# Defines index dimension, signal metadata, and physical constants.
+# Used by SQL pipeline for signal classification and physics validation.
+# =============================================================================
+
+domain: electrochemical_reactor
+description: Electrochemical reactor with full physics constants
+
+# =============================================================================
+# INDEX CONFIGURATION
+# =============================================================================
+# The index column defines the x-axis for all signals.
+# This is what gets mapped to 'I' in the SQL pipeline.
+
+index:
+  column: I                   # CANONICAL: Always 'I' in observations.parquet
+  dimension: time             # time | cycles | samples | depth | distance
+  unit: s                     # Unit of the index (s, cycles, samples, m, etc.)
+  sampling_rate: null         # Hz if applicable (for FFT, wavelets)
+
+# NOTE: Column is always 'I' - alias mapping happens at INTAKE
+# The dimension and unit describe what I represents for this domain:
+# - Electrochemistry: dimension=time, unit=s
+# - NASA CMAPSS: dimension=cycles, unit=cycles
+# - CWRU Bearing: dimension=samples, unit=samples, sampling_rate=12000
+# - Well Logging: dimension=depth, unit=m
+
+# =============================================================================
+# GLOBAL CONSTANTS
+# =============================================================================
+# Physical constants for physics engine validation.
+
+global_constants:
+  # Mechanical
+  mass: 25.0                      # kg
+  spring_constant: 1000.0         # N/m
+
+  # Fluid properties
+  density: 1200.0                 # kg/m³
+  dynamic_viscosity: 0.001        # Pa·s
+  kinematic_viscosity: 8.33e-07   # m²/s
+
+  # Geometry
+  pipe_diameter: 0.05             # m
+  pipe_length: 2.0                # m
+  characteristic_length: 0.05    # m
+  area: 0.01                      # m²
+  thickness: 0.0001               # m
+  volume: 0.001                   # m³
+
+  # Thermal
+  thermal_conductivity: 0.6       # W/(m·K)
+  heat_capacity: 3500.0           # J/(kg·K)
+  thermal_diffusivity: 1.43e-07   # m²/s
+
+  # Mass transfer
+  diffusivity: 1.0e-09            # m²/s
+  mass_diffusivity: 1.0e-09       # m²/s
+
+  # Electrochemical
+  n_electrons: 2                  # dimensionless
+  molar_mass: 0.0069              # kg/mol
+  standard_potential: 3.7         # V
+
+  # Gas
+  gamma: 1.4                      # dimensionless (Cp/Cv)
+  R_specific: 287.0               # J/(kg·K)
+
+# =============================================================================
+# SIGNAL DEFINITIONS
+# =============================================================================
+# Each signal has:
+#   - unit: Physical unit (SI preferred)
+#   - class: analog | digital | periodic | event
+#   - quantity: Physical quantity type (for grouping/physics)
+#   - description: Human-readable description
+#
+# Signal class determines SQL treatment:
+#   - analog: Continuous, derivatives valid, full calculus
+#   - digital: Discrete states, no interpolation, step changes
+#   - periodic: Oscillating, FFT meaningful, phase analysis
+#   - event: Sparse occurrences, Heaviside/Dirac analysis
+
+signals:
+  temperature:
+    unit: K
+    class: analog
+    quantity: temperature
+    description: Reactor temperature
+
+  pressure:
+    unit: Pa
+    class: analog
+    quantity: pressure
+    description: System pressure
+
+  voltage:
+    unit: V
+    class: analog
+    quantity: voltage
+    description: Cell voltage
+
+  current:
+    unit: A
+    class: analog
+    quantity: current
+    description: Discharge current
+
+  velocity:
+    unit: m/s
+    class: analog
+    quantity: velocity
+    description: Electrolyte flow velocity
+
+  concentration:
+    unit: mol/m3
+    class: analog
+    quantity: concentration
+    description: Ion concentration
+
+  position:
+    unit: m
+    class: analog
+    quantity: displacement
+    description: Vibration displacement
+
+  force:
+    unit: N
+    class: analog
+    quantity: force
+    description: Mechanical load
+
+  heat_flux:
+    unit: W/m2
+    class: analog
+    quantity: heat_flux
+    description: Heat transfer rate
+
+  enthalpy:
+    unit: J/mol
+    class: analog
+    quantity: specific_energy
+    description: Molar enthalpy
+
+  entropy:
+    unit: J/(mol*K)
+    class: analog
+    quantity: specific_entropy
+    description: Molar entropy
+
+  molar_flux:
+    unit: mol/(m2*s)
+    class: analog
+    quantity: molar_flux
+    description: Species flux
+
+  overpotential:
+    unit: V
+    class: analog
+    quantity: voltage
+    description: Electrode overpotential
+
+  exchange_current_density:
+    unit: A/m2
+    class: analog
+    quantity: current_density
+    description: Exchange current
+
+# =============================================================================
+# EXPECTED BEHAVIORS (for validation)
+# =============================================================================
+# Define what PRISM should detect for each signal.
+# Used for automated validation against ground truth.
+
+expected_behaviors:
+  temperature:
+    trend: trending           # trending | mean_reverting | random | chaotic
+    stationarity: false
+    hurst_range: [0.5, 0.8]   # Expected Hurst exponent range
+
+  pressure:
+    trend: mean_reverting
+    stationarity: true
+    hurst_range: [0.3, 0.5]
+
+  current:
+    trend: trending
+    stationarity: false
+    hurst_range: [0.5, 0.9]
+
+# =============================================================================
+# CAUSAL RELATIONSHIPS (expected)
+# =============================================================================
+# Define known causal relationships for validation.
+
+expected_causality:
+  - source: current
+    target: temperature
+    direction: forward
+    lag_range: [1, 10]
+
+  - source: overpotential
+    target: current
+    direction: forward
+    lag_range: [0, 5]
+
+  - source: temperature
+    target: concentration
+    direction: forward
+    lag_range: [5, 20]
+
+# =============================================================================
+# PHYSICS CONSTRAINTS
+# =============================================================================
+# Conservation laws and constraints for validation.
+
+physics_constraints:
+  energy_balance:
+    inputs: [current, voltage]
+    outputs: [heat_flux]
+    tolerance: 0.1
+
+  mass_balance:
+    inputs: [molar_flux]
+    outputs: [concentration]
+    tolerance: 0.05
