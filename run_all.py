@@ -90,141 +90,111 @@ def compute_derivatives(observations: pd.DataFrame) -> pd.DataFrame:
 
 
 def compute_hurst(observations: pd.DataFrame) -> pd.DataFrame:
-    """Hurst exponent via DFA."""
+    """Hurst exponent via DFA - uses canonical engine interface."""
     try:
         from prism.engines.core.hurst import compute as _compute_hurst
+        return _compute_hurst(observations)
     except ImportError:
-        _compute_hurst = None
-
-    results = []
-    for (entity_id, signal_id), group in observations.groupby(['entity_id', 'signal_id']):
-        y = group.sort_values('I')['y'].values[:MAX_POINTS_MODERATE]
-        try:
-            if _compute_hurst and len(y) > 50:
-                result = _compute_hurst(y)
-                h = result.get('hurst', np.nan)
-                r2 = result.get('r2', np.nan)
-            else:
-                h, r2 = np.nan, np.nan
-        except Exception:
-            h, r2 = np.nan, np.nan
-        results.append({
-            'entity_id': entity_id,
-            'signal_id': signal_id,
-            'hurst': h,
-            'hurst_r2': r2,
-        })
-    return pd.DataFrame(results)
+        # Fallback if engine not available
+        results = []
+        for (entity_id, signal_id), group in observations.groupby(['entity_id', 'signal_id']):
+            results.append({
+                'entity_id': entity_id,
+                'signal_id': signal_id,
+                'hurst': np.nan,
+                'hurst_r2': np.nan,
+            })
+        return pd.DataFrame(results)
 
 
 def compute_entropy(observations: pd.DataFrame) -> pd.DataFrame:
-    """Sample entropy."""
+    """Sample entropy - uses canonical engine interface."""
     try:
         from prism.engines.core.entropy import compute as _compute_entropy
+        result = _compute_entropy(observations)
+        # Rename column to match expected output
+        if 'sample_entropy' in result.columns:
+            result = result.rename(columns={'sample_entropy': 'entropy'})
+        return result[['entity_id', 'signal_id', 'entropy']]
     except ImportError:
-        _compute_entropy = None
-
-    results = []
-    for (entity_id, signal_id), group in observations.groupby(['entity_id', 'signal_id']):
-        y = group.sort_values('I')['y'].values[:MAX_POINTS_MODERATE]
-        try:
-            if _compute_entropy and len(y) > 50:
-                result = _compute_entropy(y)
-                ent = result.get('sample_entropy', np.nan)
-            else:
-                ent = np.nan
-        except Exception:
-            ent = np.nan
-        results.append({
-            'entity_id': entity_id,
-            'signal_id': signal_id,
-            'entropy': ent,
-        })
-    return pd.DataFrame(results)
+        results = []
+        for (entity_id, signal_id), group in observations.groupby(['entity_id', 'signal_id']):
+            results.append({
+                'entity_id': entity_id,
+                'signal_id': signal_id,
+                'entropy': np.nan,
+            })
+        return pd.DataFrame(results)
 
 
 def compute_fft(observations: pd.DataFrame) -> pd.DataFrame:
-    """FFT dominant frequency."""
+    """FFT dominant frequency - uses canonical engine interface."""
     try:
         from prism.engines.core.fft import compute as _compute_fft
+        result = _compute_fft(observations)
+        # Select and rename columns to match expected output
+        cols = ['entity_id', 'signal_id']
+        if 'dominant_frequency' in result.columns:
+            result = result.rename(columns={'dominant_frequency': 'dominant_freq'})
+        for c in ['dominant_freq', 'spectral_centroid']:
+            if c in result.columns:
+                cols.append(c)
+        return result[cols]
     except ImportError:
-        _compute_fft = None
-
-    results = []
-    for (entity_id, signal_id), group in observations.groupby(['entity_id', 'signal_id']):
-        y = group.sort_values('I')['y'].values[:MAX_POINTS_MODERATE]
-        try:
-            if _compute_fft and len(y) > 50:
-                result = _compute_fft(y)
-                dom_freq = result.get('dominant_frequency', np.nan)
-                centroid = result.get('spectral_centroid', np.nan)
-            else:
-                dom_freq, centroid = np.nan, np.nan
-        except Exception:
-            dom_freq, centroid = np.nan, np.nan
-        results.append({
-            'entity_id': entity_id,
-            'signal_id': signal_id,
-            'dominant_freq': dom_freq,
-            'spectral_centroid': centroid,
-        })
-    return pd.DataFrame(results)
+        results = []
+        for (entity_id, signal_id), group in observations.groupby(['entity_id', 'signal_id']):
+            results.append({
+                'entity_id': entity_id,
+                'signal_id': signal_id,
+                'dominant_freq': np.nan,
+                'spectral_centroid': np.nan,
+            })
+        return pd.DataFrame(results)
 
 
 def compute_lyapunov(observations: pd.DataFrame) -> pd.DataFrame:
-    """Lyapunov exponent."""
+    """Lyapunov exponent - uses canonical engine interface."""
     try:
         from prism.engines.core.lyapunov import compute as _compute_lyapunov
+        result = _compute_lyapunov(observations)
+        return result[['entity_id', 'signal_id', 'lyapunov']]
     except ImportError:
-        _compute_lyapunov = None
-
-    results = []
-    for (entity_id, signal_id), group in observations.groupby(['entity_id', 'signal_id']):
-        y = group.sort_values('I')['y'].values[:MAX_POINTS_EXPENSIVE]
-        try:
-            if _compute_lyapunov and len(y) > 100:
-                result = _compute_lyapunov(y)
-                lyap = result.get('lyapunov', np.nan)
-            else:
-                lyap = np.nan
-        except Exception:
-            lyap = np.nan
-        results.append({
-            'entity_id': entity_id,
-            'signal_id': signal_id,
-            'lyapunov': lyap,
-        })
-    return pd.DataFrame(results)
+        results = []
+        for (entity_id, signal_id), group in observations.groupby(['entity_id', 'signal_id']):
+            results.append({
+                'entity_id': entity_id,
+                'signal_id': signal_id,
+                'lyapunov': np.nan,
+            })
+        return pd.DataFrame(results)
 
 
 def compute_garch(observations: pd.DataFrame) -> pd.DataFrame:
-    """GARCH volatility model."""
+    """GARCH volatility model - uses canonical engine interface."""
     try:
         from prism.engines.core.garch import compute as _compute_garch
+        result = _compute_garch(observations)
+        # Rename columns to match expected output
+        rename_map = {'garch_omega': 'garch_omega', 'garch_alpha': 'garch_alpha', 'garch_beta': 'garch_beta'}
+        for old, new in rename_map.items():
+            if old in result.columns:
+                result = result.rename(columns={old: new})
+        cols = ['entity_id', 'signal_id']
+        for c in ['garch_omega', 'garch_alpha', 'garch_beta']:
+            if c in result.columns:
+                cols.append(c)
+        return result[cols]
     except ImportError:
-        _compute_garch = None
-
-    results = []
-    for (entity_id, signal_id), group in observations.groupby(['entity_id', 'signal_id']):
-        y = group.sort_values('I')['y'].values[:MAX_POINTS_EXPENSIVE]
-        try:
-            if _compute_garch and len(y) > 100:
-                result = _compute_garch(y)
-                omega = result.get('omega', np.nan)
-                alpha = result.get('alpha', np.nan)
-                beta = result.get('beta', np.nan)
-            else:
-                omega, alpha, beta = np.nan, np.nan, np.nan
-        except Exception:
-            omega, alpha, beta = np.nan, np.nan, np.nan
-        results.append({
-            'entity_id': entity_id,
-            'signal_id': signal_id,
-            'garch_omega': omega,
-            'garch_alpha': alpha,
-            'garch_beta': beta,
-        })
-    return pd.DataFrame(results)
+        results = []
+        for (entity_id, signal_id), group in observations.groupby(['entity_id', 'signal_id']):
+            results.append({
+                'entity_id': entity_id,
+                'signal_id': signal_id,
+                'garch_omega': np.nan,
+                'garch_alpha': np.nan,
+                'garch_beta': np.nan,
+            })
+        return pd.DataFrame(results)
 
 
 def compute_transitions(observations: pd.DataFrame) -> pd.DataFrame:
