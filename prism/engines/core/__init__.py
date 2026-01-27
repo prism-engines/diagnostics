@@ -60,6 +60,9 @@ from . import convex_hull
 from . import lof
 from . import modes
 
+# Typology (complex classifications)
+from . import typology_complete
+
 __all__ = [
     # Memory
     'hurst', 'acf_decay', 'spectral_slope',
@@ -78,4 +81,6 @@ __all__ = [
     # Geometry
     'pca', 'umap', 'clustering', 'mst', 'mutual_info',
     'copula', 'divergence', 'convex_hull', 'lof', 'modes',
+    # Typology
+    'typology_complete',
 ]

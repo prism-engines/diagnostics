@@ -312,6 +312,237 @@ def compute_derivatives(observations_path: str) -> pd.DataFrame:
     return result
 
 
+def compute_typology_complete(observations_path: str) -> pd.DataFrame:
+    """
+    COMPLETE Signal Typology - 15+ dimensions of classification.
+
+    PhD-level signal classification across orthogonal dimensions:
+    - Index continuity (discrete_regular, irregular, event_driven)
+    - Amplitude continuity (continuous, discrete, binary)
+    - Monotonicity (monotonic_increasing, monotonic_decreasing, non_monotonic)
+    - Sparsity (dense, sparse, very_sparse, ultra_sparse)
+    - Boundedness (bounded, possibly_unbounded)
+    - Energy class (zero_power, finite_power)
+    - Stationarity hint (likely_stationary, likely_non_stationary)
+    - Boolean flags (has_dc_offset, has_trend)
+    - Legacy signal_class for compatibility
+
+    Complex classifications (predictability, standard_form, symmetry, frequency_content)
+    require FFT/Hurst/Lyapunov and are computed in Python engine.
+    """
+    con = duckdb.connect()
+
+    result = con.execute(f"""
+        WITH
+        -- Basic statistics
+        basic_stats AS (
+            SELECT
+                entity_id,
+                signal_id,
+                COUNT(*) AS n_points,
+                AVG(y) AS mean,
+                STDDEV_POP(y) AS std,
+                MIN(y) AS min_val,
+                MAX(y) AS max_val,
+                MEDIAN(y) AS median,
+                COUNT(DISTINCT y) AS n_unique,
+                COUNT(DISTINCT y)::FLOAT / NULLIF(COUNT(*), 0) AS unique_ratio,
+                VAR_POP(y) AS variance,
+                SUM(y * y) AS sum_squared,
+                SKEWNESS(y) AS skewness,
+                KURTOSIS(y) AS kurtosis
+            FROM read_parquet('{observations_path}')
+            GROUP BY entity_id, signal_id
+        ),
+
+        -- Index (time/sequence) analysis
+        index_analysis AS (
+            SELECT
+                entity_id,
+                signal_id,
+                MIN(I) AS index_min,
+                MAX(I) AS index_max,
+                MAX(I) - MIN(I) AS duration,
+                AVG(dt) AS avg_interval,
+                STDDEV_POP(dt) AS interval_std,
+                STDDEV_POP(dt) / NULLIF(AVG(dt), 0) AS interval_cv
+            FROM (
+                SELECT
+                    entity_id,
+                    signal_id,
+                    I,
+                    I - LAG(I) OVER (PARTITION BY entity_id, signal_id ORDER BY I) AS dt
+                FROM read_parquet('{observations_path}')
+            ) t
+            GROUP BY entity_id, signal_id
+        ),
+
+        -- Derivative analysis (monotonicity, trend)
+        derivative_analysis AS (
+            SELECT
+                entity_id,
+                signal_id,
+                AVG(dy) AS mean_dy,
+                STDDEV_POP(dy) AS std_dy,
+                COUNT(*) FILTER (WHERE dy > 1e-10) AS n_positive_dy,
+                COUNT(*) FILTER (WHERE dy < -1e-10) AS n_negative_dy,
+                COUNT(*) FILTER (WHERE ABS(dy) <= 1e-10) AS n_zero_dy,
+                COUNT(*) AS n_total
+            FROM (
+                SELECT
+                    entity_id,
+                    signal_id,
+                    y - LAG(y) OVER (PARTITION BY entity_id, signal_id ORDER BY I) AS dy
+                FROM read_parquet('{observations_path}')
+            ) t
+            WHERE dy IS NOT NULL
+            GROUP BY entity_id, signal_id
+        ),
+
+        -- Zero crossing analysis (periodicity hint)
+        zero_crossing AS (
+            SELECT
+                entity_id,
+                signal_id,
+                COUNT(*) AS n_zero_crossings
+            FROM (
+                SELECT
+                    entity_id,
+                    signal_id,
+                    y,
+                    LAG(y) OVER (PARTITION BY entity_id, signal_id ORDER BY I) AS prev_y
+                FROM read_parquet('{observations_path}')
+            ) t
+            WHERE (y >= 0 AND prev_y < 0) OR (y < 0 AND prev_y >= 0)
+            GROUP BY entity_id, signal_id
+        ),
+
+        -- Sparsity analysis
+        sparsity_analysis AS (
+            SELECT
+                entity_id,
+                signal_id,
+                COUNT(*) FILTER (WHERE ABS(y - median_y) > 0.01 * range_y)::FLOAT / COUNT(*) AS density_ratio
+            FROM (
+                SELECT
+                    entity_id,
+                    signal_id,
+                    y,
+                    MEDIAN(y) OVER (PARTITION BY entity_id, signal_id) AS median_y,
+                    MAX(ABS(y)) OVER (PARTITION BY entity_id, signal_id) -
+                    MIN(ABS(y)) OVER (PARTITION BY entity_id, signal_id) AS range_y
+                FROM read_parquet('{observations_path}')
+            ) t
+            GROUP BY entity_id, signal_id
+        )
+
+        SELECT
+            b.entity_id,
+            b.signal_id,
+            b.n_points,
+
+            -- Basic stats
+            ROUND(b.mean, 6) AS mean,
+            ROUND(b.std, 6) AS std,
+            ROUND(b.min_val, 6) AS min,
+            ROUND(b.max_val, 6) AS max,
+            ROUND(b.median, 6) AS median,
+            ROUND(b.skewness, 4) AS skewness,
+            ROUND(b.kurtosis, 4) AS kurtosis,
+
+            -- Index continuity
+            CASE
+                WHEN i.interval_cv IS NULL OR i.interval_cv < 0.01 THEN 'discrete_regular'
+                WHEN i.interval_cv < 0.1 THEN 'discrete_irregular'
+                ELSE 'event_driven'
+            END AS index_continuity,
+
+            ROUND(1.0 / NULLIF(i.avg_interval, 0), 4) AS sampling_rate,
+            ROUND(i.duration, 4) AS duration,
+
+            -- Amplitude continuity
+            CASE
+                WHEN b.n_unique = 1 THEN 'constant'
+                WHEN b.n_unique = 2 THEN 'binary'
+                WHEN b.n_unique <= 10 THEN 'discrete_few'
+                WHEN b.unique_ratio < 0.01 THEN 'discrete_quantized'
+                WHEN b.unique_ratio < 0.05 THEN 'discrete_stepped'
+                ELSE 'continuous'
+            END AS amplitude_continuity,
+
+            -- Stationarity hint (simple check)
+            CASE
+                WHEN b.std < 1e-10 THEN 'constant'
+                WHEN ABS(d.mean_dy) < 0.001 * b.std THEN 'likely_stationary'
+                ELSE 'likely_non_stationary'
+            END AS stationarity_hint,
+
+            -- Monotonicity
+            CASE
+                WHEN d.n_negative_dy = 0 AND d.n_positive_dy > 0 THEN 'monotonic_increasing'
+                WHEN d.n_positive_dy = 0 AND d.n_negative_dy > 0 THEN 'monotonic_decreasing'
+                WHEN d.n_positive_dy < 0.05 * d.n_total OR d.n_negative_dy < 0.05 * d.n_total THEN 'nearly_monotonic'
+                ELSE 'non_monotonic'
+            END AS monotonicity,
+
+            -- Sparsity
+            CASE
+                WHEN s.density_ratio > 0.5 THEN 'dense'
+                WHEN s.density_ratio > 0.1 THEN 'sparse'
+                WHEN s.density_ratio > 0.01 THEN 'very_sparse'
+                ELSE 'ultra_sparse'
+            END AS sparsity,
+            ROUND(s.density_ratio, 4) AS density_ratio,
+
+            -- Boundedness
+            CASE
+                WHEN b.std < 1e-10 THEN 'constant'
+                WHEN b.max_val - b.min_val < 100 * b.std THEN 'bounded'
+                ELSE 'possibly_unbounded'
+            END AS boundedness,
+
+            -- Energy/Power
+            ROUND(b.sum_squared, 4) AS total_energy,
+            ROUND(b.sum_squared / NULLIF(b.n_points, 0), 6) AS avg_power,
+            CASE
+                WHEN b.variance < 1e-10 THEN 'zero_power'
+                ELSE 'finite_power'
+            END AS energy_class,
+
+            -- Boolean flags
+            CASE WHEN ABS(b.mean) > 0.1 * NULLIF(b.std, 0) THEN true ELSE false END AS has_dc_offset,
+            CASE WHEN ABS(d.mean_dy) > 0.01 * NULLIF(b.std, 0) THEN true ELSE false END AS has_trend,
+
+            -- Zero crossing (periodicity hint)
+            COALESCE(z.n_zero_crossings, 0) AS n_zero_crossings,
+            ROUND(COALESCE(z.n_zero_crossings, 0)::FLOAT / NULLIF(b.n_points, 0), 4) AS zero_crossing_rate,
+
+            -- Legacy classification (compatibility)
+            CASE
+                WHEN b.variance < 1e-10 THEN 'constant'
+                WHEN b.n_unique = 2 THEN 'binary'
+                WHEN b.unique_ratio < 0.01 THEN 'digital'
+                WHEN b.unique_ratio < 0.05 THEN 'discrete'
+                WHEN COALESCE(s.density_ratio, 1) < 0.1 THEN 'event'
+                ELSE 'analog'
+            END AS signal_class,
+
+            -- Raw measurements
+            ROUND(b.unique_ratio, 6) AS unique_ratio,
+            ROUND(b.variance, 6) AS variance,
+            b.n_unique
+
+        FROM basic_stats b
+        LEFT JOIN index_analysis i ON b.entity_id = i.entity_id AND b.signal_id = i.signal_id
+        LEFT JOIN derivative_analysis d ON b.entity_id = d.entity_id AND b.signal_id = d.signal_id
+        LEFT JOIN zero_crossing z ON b.entity_id = z.entity_id AND b.signal_id = z.signal_id
+        LEFT JOIN sparsity_analysis s ON b.entity_id = s.entity_id AND b.signal_id = s.signal_id
+    """).df()
+
+    con.close()
+    return result
+
+
 if __name__ == '__main__':
     import time
 
@@ -328,3 +559,15 @@ if __name__ == '__main__':
     print("\nResults:")
     for name, df in results.items():
         print(f"  {name}: {len(df)} rows × {len(df.columns)} cols")
+
+    print("\n" + "=" * 60)
+    print("Testing COMPLETE typology...")
+    print("=" * 60)
+
+    start = time.time()
+    typology = compute_typology_complete(obs_path)
+    elapsed = time.time() - start
+
+    print(f"\nTotal time: {elapsed:.3f}s")
+    print(f"Typology: {len(typology)} rows × {len(typology.columns)} cols")
+    print(f"\nColumns: {list(typology.columns)}")

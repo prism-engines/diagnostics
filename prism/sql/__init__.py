@@ -14,6 +14,7 @@ from .fast_primitives import (
     compute_all_fast,
     compute_correlation_matrix,
     compute_typology,
+    compute_typology_complete,
     compute_derivatives,
 )
 
@@ -22,5 +23,6 @@ __all__ = [
     'compute_all_fast',
     'compute_correlation_matrix',
     'compute_typology',
+    'compute_typology_complete',
     'compute_derivatives',
 ]

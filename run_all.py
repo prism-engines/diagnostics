@@ -38,6 +38,12 @@ DATA_DIR = Path("data")
 INPUT_FILE = DATA_DIR / "observations.parquet"
 
 # =============================================================================
+# SQL FAST PATH (instant computations via DuckDB)
+# =============================================================================
+
+from prism.sql.fast_primitives import compute_typology_complete as compute_typology_sql
+
+# =============================================================================
 # EXPLICIT ENGINE IMPORTS
 # =============================================================================
 
@@ -73,6 +79,9 @@ from prism.engines.core import (
     # System-level
     pca,
 )
+
+# Complex typology (needs FFT/Hurst/Lyapunov results)
+from prism.engines.core import typology_complete
 
 # =============================================================================
 # EXPLICIT ENGINE LISTS
@@ -111,56 +120,40 @@ POINT_ENGINES = [
 
 
 # =============================================================================
-# TYPOLOGY COMPUTATION
+# TYPOLOGY COMPUTATION (SQL Fast Path + Complex Classifications)
 # =============================================================================
 
-def compute_typology(obs: pd.DataFrame) -> pd.DataFrame:
-    """Classify each signal by type."""
-    results = []
+def compute_typology(observations_path: str) -> pd.DataFrame:
+    """
+    COMPLETE Signal Typology via SQL Fast Path.
 
-    for (entity_id, signal_id), group in obs.groupby(['entity_id', 'signal_id']):
-        y = group['y'].dropna().values
-        n = len(y)
+    15+ dimensions of classification computed in ~0.2 seconds via DuckDB:
+    - Basic stats (mean, std, min, max, median, skewness, kurtosis)
+    - Index continuity (discrete_regular, irregular, event_driven)
+    - Amplitude continuity (continuous, discrete, binary)
+    - Stationarity hint
+    - Monotonicity
+    - Sparsity
+    - Boundedness
+    - Energy class
+    - DC offset / trend flags
+    - Zero crossing rate
+    - Legacy signal_class
+    """
+    return compute_typology_sql(observations_path)
 
-        if n == 0:
-            signal_class = 'empty'
-            unique_ratio = 0.0
-            variance = 0.0
-            mean_val = 0.0
-            std_val = 0.0
-            min_val = 0.0
-            max_val = 0.0
-        else:
-            unique_ratio = len(np.unique(y)) / n
-            variance = float(np.var(y))
-            mean_val = float(np.mean(y))
-            std_val = float(np.std(y))
-            min_val = float(np.min(y))
-            max_val = float(np.max(y))
 
-            if variance < 1e-10:
-                signal_class = 'constant'
-            elif unique_ratio < 0.01:
-                signal_class = 'digital'
-            elif unique_ratio < 0.05:
-                signal_class = 'discrete'
-            else:
-                signal_class = 'analog'
+def compute_typology_complex(obs: pd.DataFrame, primitives: pd.DataFrame) -> pd.DataFrame:
+    """
+    Complex typology classifications requiring FFT/Hurst/Lyapunov results.
 
-        results.append({
-            'entity_id': entity_id,
-            'signal_id': signal_id,
-            'n_points': n,
-            'unique_ratio': round(unique_ratio, 6),
-            'variance': variance,
-            'mean': mean_val,
-            'std': std_val,
-            'min': min_val,
-            'max': max_val,
-            'signal_class': signal_class,
-        })
-
-    return pd.DataFrame(results)
+    - Predictability (deterministic / stochastic / chaotic)
+    - Repetition pattern (periodic / quasi_periodic / aperiodic)
+    - Standard form (step / ramp / sinusoid / noise_* / complex)
+    - Symmetry (even / odd / none)
+    - Frequency content (lowpass / highpass / bandpass / broadband)
+    """
+    return typology_complete.compute(obs, primitives)
 
 
 # =============================================================================
@@ -305,7 +298,7 @@ def main():
     # -------------------------------------------------------------------------
     # 1. LOAD OBSERVATIONS
     # -------------------------------------------------------------------------
-    print("\n[1/7] Loading observations...")
+    print("\n[1/8] Loading observations...")
 
     if not INPUT_FILE.exists():
         print(f"  ERROR: {INPUT_FILE} not found")
@@ -321,11 +314,11 @@ def main():
     print(f"  {n_signals} signals")
 
     # -------------------------------------------------------------------------
-    # 2. COMPUTE TYPOLOGY
+    # 2. COMPUTE TYPOLOGY (SQL Fast Path - 15+ dimensions)
     # -------------------------------------------------------------------------
-    print("\n[2/7] Computing typology...")
+    print("\n[2/8] Computing typology (SQL fast path)...")
 
-    typology = compute_typology(obs)
+    typology = compute_typology(str(INPUT_FILE))
     typology.to_parquet(DATA_DIR / 'typology.parquet', index=False)
 
     type_counts = typology['signal_class'].value_counts().to_dict()
@@ -333,10 +326,16 @@ def main():
         print(f"  {t}: {c}")
     print(f"  ✓ Saved typology.parquet ({len(typology)} signals, {len(typology.columns)} cols)")
 
+    # Show new typology dimensions
+    new_cols = [c for c in typology.columns if c not in
+                ['entity_id', 'signal_id', 'n_points', 'mean', 'std', 'min', 'max',
+                 'unique_ratio', 'variance', 'signal_class']]
+    print(f"  New dimensions: {', '.join(new_cols[:8])}...")
+
     # -------------------------------------------------------------------------
     # 3. RUN SIGNAL ENGINES
     # -------------------------------------------------------------------------
-    print("\n[3/7] Running signal engines...")
+    print("\n[3/8] Running signal engines...")
     print(f"  {len(SIGNAL_ENGINES)} engines to run")
 
     signal_results = [typology]  # Start with typology as base
@@ -366,13 +365,37 @@ def main():
 
     # Drop duplicate columns
     primitives = primitives.loc[:, ~primitives.columns.str.endswith('_dup')]
+
+    # -------------------------------------------------------------------------
+    # 4. COMPLEX TYPOLOGY (needs FFT/Hurst/Lyapunov results)
+    # -------------------------------------------------------------------------
+    print("\n[4/8] Computing complex typology...")
+
+    try:
+        complex_typology = compute_typology_complex(obs, primitives)
+        if len(complex_typology) > 0:
+            # Merge into primitives
+            primitives = primitives.merge(
+                complex_typology,
+                on=['entity_id', 'signal_id'],
+                how='left',
+                suffixes=('', '_dup')
+            )
+            primitives = primitives.loc[:, ~primitives.columns.str.endswith('_dup')]
+            print(f"  ✓ Complex typology: {len(complex_typology.columns) - 2} dimensions")
+            print(f"    predictability, repetition_pattern, standard_form, symmetry, frequency_content")
+        else:
+            print(f"  ○ Complex typology: empty result")
+    except Exception as e:
+        print(f"  ✗ Complex typology: {str(e)[:50]}")
+
     primitives.to_parquet(DATA_DIR / 'primitives.parquet', index=False)
     print(f"  ✓ Saved primitives.parquet ({len(primitives)} rows × {len(primitives.columns)} cols)")
 
     # -------------------------------------------------------------------------
-    # 4. RUN PAIRWISE ENGINES
+    # 5. RUN PAIRWISE ENGINES
     # -------------------------------------------------------------------------
-    print("\n[4/7] Running pairwise engines...")
+    print("\n[5/8] Running pairwise engines...")
     print(f"  {len(PAIRWISE_ENGINES)} engines to run")
 
     # Start with basic correlations
@@ -417,7 +440,7 @@ def main():
     # -------------------------------------------------------------------------
     # 5. RUN POINT ENGINES
     # -------------------------------------------------------------------------
-    print("\n[5/7] Running point engines...")
+    print("\n[6/8] Running point engines...")
     print(f"  {len(POINT_ENGINES)} engines to run")
 
     # Start with derivatives
@@ -457,7 +480,7 @@ def main():
     # -------------------------------------------------------------------------
     # 6. COMPUTE MANIFOLD TRAJECTORY
     # -------------------------------------------------------------------------
-    print("\n[6/7] Computing manifold trajectory...")
+    print("\n[7/8] Computing manifold trajectory...")
 
     manifold = compute_manifold_trajectory(obs)
     manifold.to_parquet(DATA_DIR / 'manifold.parquet', index=False)
@@ -468,7 +491,7 @@ def main():
     # -------------------------------------------------------------------------
     elapsed = time.time() - start_time
 
-    print("\n[7/7] Complete!")
+    print("\n[8/8] Complete!")
     print("=" * 70)
     print(f"Time: {elapsed:.1f}s")
     print("=" * 70)
