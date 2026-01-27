@@ -1,210 +1,136 @@
 """
-Autocorrelation Decay Analysis
-==============================
+ACF Decay Engine
 
-Determines if ACF decays exponentially (short-range dependence)
-or as a power-law (long-range dependence).
+Measures autocorrelation decay rate - how quickly a signal forgets its past.
 
-Power-law decay indicates long memory and is associated with
-Hurst exponent > 0.5.
+CANONICAL INTERFACE:
+    def compute(observations: pd.DataFrame) -> pd.DataFrame
+    Input:  [entity_id, signal_id, I, y]
+    Output: [entity_id, signal_id, acf_decay_rate, half_life, acf_1, acf_5]
 
-Supports three computation modes:
-    - static: Entire signal → single value
-    - windowed: Rolling windows → time series
-    - point: At time t → single value
+Fast decay = weak memory, slow decay = strong memory/persistence.
 """
 
 import numpy as np
-from scipy import stats
-from typing import Dict, Any, Optional
+import pandas as pd
+from typing import Dict, Any
 
 
 def compute(
-    series: np.ndarray,
-    mode: str = 'static',
-    t: Optional[int] = None,
-    window_size: int = 200,
-    step_size: int = 20,
+    observations: pd.DataFrame,
     max_lag: int = 50,
-) -> Dict[str, Any]:
+) -> pd.DataFrame:
     """
-    Determine autocorrelation decay type.
+    Compute autocorrelation decay rate.
 
-    Args:
-        series: 1D numpy array of observations
-        mode: 'static', 'windowed', or 'point'
-        t: Time index for point mode
-        window_size: Window size for windowed/point modes
-        step_size: Step between windows for windowed mode
-        max_lag: Maximum lag to consider for ACF
+    CANONICAL INTERFACE:
+        Input:  observations [entity_id, signal_id, I, y]
+        Output: primitives [entity_id, signal_id, acf_decay_rate, half_life,
+                           acf_1, acf_5]
 
-    Returns:
-        mode='static': {'decay_type': str, 'half_life': float, ...}
-        mode='windowed': {'decay_type': array, 'half_life': array, 't': array, ...}
-        mode='point': {'decay_type': str, 'half_life': float, 't': int, ...}
+    Parameters
+    ----------
+    observations : pd.DataFrame
+        Must have columns: entity_id, signal_id, I, y
+    max_lag : int, optional
+        Maximum lag to compute ACF (default: 50)
+
+    Returns
+    -------
+    pd.DataFrame
+        ACF decay metrics per signal
     """
-    series = np.asarray(series).flatten()
+    results = []
 
-    if mode == 'static':
-        return _compute_static(series, max_lag)
-    elif mode == 'windowed':
-        return _compute_windowed(series, window_size, step_size, max_lag)
-    elif mode == 'point':
-        return _compute_point(series, t, window_size, max_lag)
+    for (entity_id, signal_id), group in observations.groupby(['entity_id', 'signal_id']):
+        y = group.sort_values('I')['y'].values
+
+        if len(y) < max_lag + 10:
+            results.append({
+                'entity_id': entity_id,
+                'signal_id': signal_id,
+                'acf_decay_rate': np.nan,
+                'half_life': np.nan,
+                'acf_1': np.nan,
+                'acf_5': np.nan,
+            })
+            continue
+
+        try:
+            result = _compute_acf_decay(y, max_lag)
+            results.append({
+                'entity_id': entity_id,
+                'signal_id': signal_id,
+                **result
+            })
+        except Exception:
+            results.append({
+                'entity_id': entity_id,
+                'signal_id': signal_id,
+                'acf_decay_rate': np.nan,
+                'half_life': np.nan,
+                'acf_1': np.nan,
+                'acf_5': np.nan,
+            })
+
+    return pd.DataFrame(results)
+
+
+def _compute_acf_decay(y: np.ndarray, max_lag: int) -> Dict[str, float]:
+    """Compute ACF and fit exponential decay."""
+    n = len(y)
+
+    # Compute autocorrelation
+    acf_values = _autocorrelation(y, max_lag)
+
+    # Get specific ACF values
+    acf_1 = acf_values[1] if len(acf_values) > 1 else np.nan
+    acf_5 = acf_values[5] if len(acf_values) > 5 else np.nan
+
+    # Fit exponential decay: acf(k) ~ exp(-k * decay_rate)
+    # Linear regression on log(acf) for positive acf values
+    positive_mask = acf_values > 0.01
+    positive_lags = np.where(positive_mask)[0]
+
+    if len(positive_lags) > 5:
+        log_acf = np.log(acf_values[positive_mask])
+        lags = positive_lags
+
+        # Simple linear fit
+        slope, intercept = np.polyfit(lags, log_acf, 1)
+        decay_rate = -slope
+
+        # Half-life: time for ACF to decay to 0.5
+        if decay_rate > 0:
+            half_life = np.log(2) / decay_rate
+        else:
+            half_life = np.inf
     else:
-        raise ValueError(f"Unknown mode: {mode}. Use 'static', 'windowed', or 'point'.")
-
-
-def _compute_static(series: np.ndarray, max_lag: int = 50) -> Dict[str, Any]:
-    """Compute ACF decay on entire signal."""
-    n = len(series)
-    max_lag = min(max_lag, n // 3)
-
-    if max_lag < 5:
-        return {
-            'decay_type': 'exponential',
-            'half_life': 1.0,
-            'exponential_r2': 0.0,
-            'power_law_r2': 0.0
-        }
-
-    # Compute ACF
-    centered = series - np.mean(series)
-    acf = np.correlate(centered, centered, mode='full')
-    acf = acf[n-1:n-1+max_lag+1]
-    acf = acf / acf[0] if acf[0] != 0 else acf
-
-    lags = np.arange(1, len(acf))
-    acf_values = np.abs(acf[1:])
-
-    # Filter out zeros/negatives for log
-    valid = acf_values > 0.01
-    if np.sum(valid) < 3:
-        return {
-            'decay_type': 'exponential',
-            'half_life': 1.0,
-            'exponential_r2': 0.0,
-            'power_law_r2': 0.0
-        }
-
-    lags_valid = lags[valid]
-    acf_valid = acf_values[valid]
-
-    # Fit exponential: log(ACF) = -λ * lag
-    log_acf = np.log(acf_valid)
-    exp_slope, _, exp_r, _, _ = stats.linregress(lags_valid, log_acf)
-    exp_r2 = exp_r ** 2
-
-    # Fit power law: log(ACF) = -α * log(lag)
-    log_lags = np.log(lags_valid)
-    _, _, pow_r, _, _ = stats.linregress(log_lags, log_acf)
-    pow_r2 = pow_r ** 2
-
-    # Half-life from exponential fit
-    if exp_slope < 0:
-        half_life = -np.log(2) / exp_slope
-    else:
-        half_life = float(max_lag)
-
-    # Better fit wins (power law needs to be notably better)
-    if pow_r2 > exp_r2 + 0.05:
-        decay_type = 'power_law'
-    else:
-        decay_type = 'exponential'
+        decay_rate = np.nan
+        half_life = np.nan
 
     return {
-        'decay_type': decay_type,
-        'half_life': float(half_life),
-        'exponential_r2': float(exp_r2),
-        'power_law_r2': float(pow_r2)
+        'acf_decay_rate': float(decay_rate) if not np.isnan(decay_rate) else np.nan,
+        'half_life': float(half_life) if not np.isinf(half_life) and not np.isnan(half_life) else np.nan,
+        'acf_1': float(acf_1),
+        'acf_5': float(acf_5),
     }
 
 
-def _compute_windowed(
-    series: np.ndarray,
-    window_size: int,
-    step_size: int,
-    max_lag: int = 50,
-) -> Dict[str, Any]:
-    """Compute ACF decay over rolling windows."""
-    n = len(series)
+def _autocorrelation(y: np.ndarray, max_lag: int) -> np.ndarray:
+    """Compute autocorrelation function up to max_lag."""
+    n = len(y)
+    y_centered = y - np.mean(y)
+    var = np.var(y)
 
-    if n < window_size:
-        return {
-            'decay_type': np.array([]),
-            'half_life': np.array([]),
-            'exponential_r2': np.array([]),
-            'power_law_r2': np.array([]),
-            't': np.array([]),
-            'window_size': window_size,
-            'step_size': step_size,
-        }
+    if var == 0:
+        return np.zeros(max_lag + 1)
 
-    t_values = []
-    decay_types = []
-    half_life_values = []
-    exp_r2_values = []
-    pow_r2_values = []
+    acf = np.zeros(max_lag + 1)
+    for k in range(max_lag + 1):
+        if k == 0:
+            acf[k] = 1.0
+        else:
+            acf[k] = np.sum(y_centered[k:] * y_centered[:-k]) / ((n - k) * var)
 
-    for start in range(0, n - window_size + 1, step_size):
-        end = start + window_size
-        window = series[start:end]
-
-        result = _compute_static(window, max_lag)
-
-        t_values.append(start + window_size // 2)
-        decay_types.append(result['decay_type'])
-        half_life_values.append(result['half_life'])
-        exp_r2_values.append(result['exponential_r2'])
-        pow_r2_values.append(result['power_law_r2'])
-
-    return {
-        'decay_type': np.array(decay_types),
-        'half_life': np.array(half_life_values),
-        'exponential_r2': np.array(exp_r2_values),
-        'power_law_r2': np.array(pow_r2_values),
-        't': np.array(t_values),
-        'window_size': window_size,
-        'step_size': step_size,
-    }
-
-
-def _compute_point(
-    series: np.ndarray,
-    t: int,
-    window_size: int,
-    max_lag: int = 50,
-) -> Dict[str, Any]:
-    """Compute ACF decay at specific time t."""
-    if t is None:
-        raise ValueError("t is required for point mode")
-
-    n = len(series)
-
-    # Center window on t
-    half_window = window_size // 2
-    start = max(0, t - half_window)
-    end = min(n, start + window_size)
-
-    if end - start < window_size:
-        start = max(0, end - window_size)
-
-    window = series[start:end]
-
-    if len(window) < 20:
-        return {
-            'decay_type': 'exponential',
-            'half_life': 1.0,
-            'exponential_r2': 0.0,
-            'power_law_r2': 0.0,
-            't': t,
-            'window_start': start,
-            'window_end': end,
-        }
-
-    result = _compute_static(window, max_lag)
-    result['t'] = t
-    result['window_start'] = start
-    result['window_end'] = end
-
-    return result
+    return acf
