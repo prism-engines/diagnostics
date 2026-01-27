@@ -23,6 +23,9 @@ import time
 import warnings
 from pathlib import Path
 
+# Force line-buffered output (so we can see progress in background tasks)
+sys.stdout.reconfigure(line_buffering=True)
+
 import numpy as np
 import pandas as pd
 
